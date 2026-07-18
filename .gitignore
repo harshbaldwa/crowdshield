@@ -29,6 +29,8 @@ coverage*.txt
 /.tmp/
 /.xdg/
 /.golangci-cache/
+__pycache__/
+*.py[cod]
 
 # Editor and OS files
 .vscode/

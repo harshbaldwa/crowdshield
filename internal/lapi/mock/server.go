@@ -72,7 +72,7 @@ type inboundAlert struct {
 	Source          source          `json:"source"`
 }
 
-func New(config Config) *Server {
+func newServer(config Config) *Server {
 	if config.MachineID == "" {
 		config.MachineID = "crowdshield-test"
 	}
@@ -88,11 +88,22 @@ func New(config Config) *Server {
 	if config.MaxRequestBytes <= 0 {
 		config.MaxRequestBytes = 1 << 20
 	}
-	result := &Server{
+	return &Server{
 		config: config, tokens: make(map[string]time.Time), alerts: make(map[int64]lapi.Alert),
 		expiredDecisions: make(map[int64]struct{}), requests: make(map[string]int),
 		nextAlertID: 1, nextDecisionID: 1, nextTokenID: 1,
 	}
+}
+
+// NewHandler returns an in-memory CrowdSec-shaped handler that callers may
+// serve on their own bounded listener. It performs no network I/O itself.
+func NewHandler(config Config) http.Handler {
+	result := newServer(config)
+	return http.HandlerFunc(result.serveHTTP)
+}
+
+func New(config Config) *Server {
+	result := newServer(config)
 	result.server = httptest.NewServer(http.HandlerFunc(result.serveHTTP))
 	return result
 }

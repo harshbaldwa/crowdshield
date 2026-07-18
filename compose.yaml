@@ -1,0 +1,57 @@
+name: crowdshield
+
+services:
+  crowdshield:
+    image: crowdshield:local
+    pull_policy: never
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: "${CROWDSHIELD_VERSION:-dev}"
+        REVISION: "${CROWDSHIELD_REVISION:-unknown}"
+        BUILD_DATE: "${CROWDSHIELD_BUILD_DATE:-1970-01-01T00:00:00Z}"
+        SOURCE_DATE_EPOCH: "${SOURCE_DATE_EPOCH:-0}"
+    command: ["run"]
+    user: "${CROWDSHIELD_UID:-65532}:${CROWDSHIELD_GID:-65532}"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    restart: unless-stopped
+    stop_grace_period: 20s
+    expose:
+      - "9090"
+    healthcheck:
+      test: ["CMD", "/crowdshield", "healthcheck", "--timeout", "2s"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    volumes:
+      - type: bind
+        source: ./config/crowdshield.yaml
+        target: /config/crowdshield.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./secrets/lapi-credentials.yaml
+        target: /run/secrets/crowdshield-lapi-credentials.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./data
+        target: /data
+        bind:
+          create_host_path: false
+    networks:
+      - monitor
+
+networks:
+  monitor:
+    name: monitor
+    external: true

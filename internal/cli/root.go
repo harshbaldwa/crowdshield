@@ -19,7 +19,7 @@ const (
 	ExitOwnership   = 4
 )
 
-const Usage = "usage: crowdshield <run|sync|status|validate-config|list-feeds|explain|prune|db|version|help> [options]"
+const Usage = "usage: crowdshield <run|sync|status|validate-config|list-feeds|explain|prune|db|healthcheck|version|help> [options]"
 
 type ConfigLoader func(string) (config.Config, error)
 
@@ -129,6 +129,8 @@ func Execute(ctx context.Context, args []string, stdout, stderr io.Writer, optio
 		return pruneCommand(ctx, args[1:], stdout, stderr, options)
 	case "db":
 		return dbCommand(ctx, args[1:], stdout, stderr, options)
+	case "healthcheck":
+		return healthcheckCommand(ctx, args[1:], stdout, stderr)
 	default:
 		writeUsage(stderr)
 		return ExitUsage

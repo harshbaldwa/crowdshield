@@ -1,0 +1,50 @@
+server:
+  listen_address: ":9090"
+  shutdown_timeout: "5s"
+
+database:
+  path: "/data/crowdshield.db"
+  integrity_check_on_startup: true
+
+crowdsec:
+  credentials_file: "/run/secrets/crowdshield-lapi-credentials.yaml"
+  allowed_http_hosts:
+    - "mock-lapi"
+  request_timeout: "2s"
+  connect_timeout: "1s"
+
+schedule:
+  interval: "24h"
+  startup_jitter: "0s"
+  run_immediately: false
+
+feeds:
+  - name: "synthetic-disabled"
+    enabled: false
+    url: "https://feeds.example.invalid/list"
+    format: "plain"
+    family: "ipv4"
+    timeout: "1s"
+    min_update_interval: "24h"
+    max_download_bytes: 1024
+    expected_min_entries: 1
+    expected_max_entries: 2
+    max_growth_ratio: 2.0
+    max_shrink_ratio: 0.5
+    max_malformed_lines: 1
+    max_malformed_ratio: 0.1
+    require_final_newline: true
+    content_types:
+      - "text/plain"
+    attribution: "Synthetic disabled feed for isolated container tests only"
+
+validation:
+  allow_http: false
+  user_agent: "crowdshield/smoke"
+
+notifications:
+  enabled: false
+
+logging:
+  level: "info"
+  format: "json"

@@ -251,7 +251,7 @@ func TestPendingOperationRecoversWithoutDuplicatePost(t *testing.T) {
 	if err != nil || len(records) != 1 {
 		t.Fatal("unable to seed enforcement plan")
 	}
-	token := "0123456789abcdef0123456789abcdef"
+	token := "0123456789abcdef0123456789abcdef" // gitleaks:allow -- fixed synthetic idempotency token
 	operation := state.Operation{
 		Token: token, Kind: state.OperationCreate, FeedID: h.feeds[0].ID, Duration: 25 * time.Hour,
 		PayloadHash: strings.Repeat("a", 64), Items: []state.OperationItem{{ObjectID: records[0].ID}}, StartedAt: h.now,

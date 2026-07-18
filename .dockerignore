@@ -1,0 +1,27 @@
+# Deny the complete repository by default. Only inputs required to compile the
+# static binary and ship its notices are admitted below.
+**
+
+!Dockerfile
+!.dockerignore
+!go.mod
+!go.sum
+!LICENSE
+!THIRD_PARTY_NOTICES.md
+
+!cmd/
+!cmd/crowdshield/
+!cmd/crowdshield/*.go
+!internal/
+!internal/**
+!migrations/
+!migrations/*.go
+!migrations/*.sql
+
+# Tests and fixtures are not build inputs and must never enter the builder
+# context. The final stage copies only the resulting binary and notices.
+**/*_test.go
+**/testdata/
+**/testdata/**
+internal/lapi/mock/
+internal/lapi/mock/**

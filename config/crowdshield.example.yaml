@@ -30,6 +30,9 @@ database:
 
 crowdsec:
   credentials_file: "/run/secrets/crowdshield-lapi-credentials.yaml"
+  # Plain HTTP is trusted only for this exact internal Docker DNS name.
+  allowed_http_hosts:
+    - "crowdsec"
   request_timeout: "15s"
   connect_timeout: "5s"
   max_response_bytes: 8388608

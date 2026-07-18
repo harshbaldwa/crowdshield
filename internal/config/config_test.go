@@ -71,6 +71,24 @@ func TestExampleConfigurationLoads(t *testing.T) {
 	if len(cfg.Feeds) != 3 || cfg.Logging.Format != "json" {
 		t.Fatal("checked-in example lost required sections")
 	}
+	if len(cfg.CrowdSec.AllowedHTTPHosts) != 1 || cfg.CrowdSec.AllowedHTTPHosts[0] != "crowdsec" {
+		t.Fatal("checked-in example does not trust exactly the intended internal LAPI host")
+	}
+}
+
+func TestContainerSmokeConfigurationDisablesExternalContact(t *testing.T) {
+	path := filepath.Join("..", "..", "test", "container", "crowdshield.smoke.yaml")
+	cfg, err := testLoader().Load(path)
+	if err != nil {
+		t.Fatal("container smoke configuration is invalid")
+	}
+	if len(cfg.Feeds) != 1 || cfg.Feeds[0].Enabled || cfg.Schedule.RunImmediately || cfg.Notifications.Enabled {
+		t.Fatal("container smoke configuration permits external contact")
+	}
+	if cfg.Feeds[0].URL != "https://feeds.example.invalid/list" ||
+		len(cfg.CrowdSec.AllowedHTTPHosts) != 1 || cfg.CrowdSec.AllowedHTTPHosts[0] != "mock-lapi" {
+		t.Fatal("container smoke configuration lost its synthetic trust boundary")
+	}
 }
 
 func TestLoadRejectsUnknownFieldWithoutEchoingValue(t *testing.T) {

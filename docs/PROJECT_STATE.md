@@ -1,6 +1,6 @@
 # Crowdshield Project State
 
-Canonical state timestamp: 2026-07-18T12:58:41-05:00
+Canonical state timestamp: 2026-07-18T14:47:16-05:00
 
 ## Project identity and boundary
 
@@ -30,7 +30,7 @@ Observed from the live repository at `2026-07-18T00:10:13-05:00` before new impl
 
 ## Current milestone
 
-Phases 1, 2, 3a, 3b, 3c, and 4 are complete. Phase 5 (packaging and operator documentation) is next; no deployment or real LAPI write has been authorized.
+Phases 1 through 5 are complete locally. Phase 6 publication/reporting remains; no deployment, image publication, production Compose action, real feed synchronization, or real LAPI write was performed.
 
 Detailed evidence and design baseline:
 
@@ -300,13 +300,16 @@ Strict vertical TDD status (Phase 3 complete through 3c):
 - Completed privacy, tracked-artifact, process, and listener checks.
 - Used no real LAPI writes, deployment, Compose, registry, or production action.
 
-### Phase 5: packaging and documentation
+### Phase 5: packaging and documentation (completed locally)
 
-- Multi-stage non-root container.
-- Read-only-root-compatible development Compose joining only external `monitor`.
-- Do not run Compose.
-- CI workflows for test/race/lint/static/build/container/SBOM/scan/license.
-- Complete operator, deployment, security, attribution, credential, and development docs.
+- Added an immutable-digest, multi-stage Go/distroless image with a static binary, numeric nonroot user, native shell-free healthcheck, OCI metadata, notices, and deny-by-default build context.
+- Added hardened Compose joining only external `monitor`: no host port, all capabilities dropped, no-new-privileges, read-only root, bounded PIDs, read-only config/credential binds, and `/data` as the only effective writable path.
+- Added README, deployment/operator, credential rotation, container security, development, security-reporting, and third-party notice documentation.
+- Added least-privilege CI with immutable action/tool pins covering source/race/vet/static analysis, secret/license checks, image build/inspection, isolated smoke, SBOM, and source/image Trivy reports. CI builds locally and does not publish/deploy.
+- Built and inspected `crowdshield:local`: linux/amd64, default `65532:65532`, 16 layers, 14,286,648-byte image, 12,148,862-byte static binary, no forbidden source/config/credential/state/tool paths.
+- The isolated smoke harness passed with synthetic credentials, disabled `.invalid` feed, internal-only mock LAPI, UID/GID `1000:1000`, read-only root, writable `/data`, healthy native liveness, and clean SIGTERM; all temporary containers/networks/mock images were removed.
+- CycloneDX and SPDX image SBOMs were generated under ignored `.tmp`. Trivy found zero source/image vulnerabilities and zero secrets; the only full-report finding is reviewed LOW DS-0026 on the disposable mock image's intentional lack of a healthcheck. Govulncheck found zero reachable vulnerabilities; Gitleaks found no current-source leaks; the material license report had no unknown licenses.
+- Final normal/race tests passed across 21 packages; module verification, gofmt, vet, Staticcheck, gosec, actionlint, yamllint, Compose validation, Hadolint, ShellCheck, notice reconciliation, image verification, and `git diff --check` passed.
 
 ### Phase 6: final report
 
@@ -315,15 +318,15 @@ Report observed commands/results, sizes, coverage, scan findings, limitations, e
 ## Technical debt / open questions
 
 - Feed terms are accepted for this project; future upstream term changes still require operator review. FireHOL Level 1 remains an explicitly accepted aggregate with `license=unknown`, so attribution and non-redistribution guidance must remain prominent.
-- Source vulnerability and material license reviews are complete. Phase 5 binary/image distributions must add a third-party-notices artifact covering the applicable MIT/BSD notices, including modernc libc's third-party MIT material.
+- Source/image vulnerability and material license reviews are complete. `THIRD_PARTY_NOTICES.md` covers the material Go/runtime notices, including modernc bundled third-party material.
 - The mock LAPI covers authentication, create/read/expire, duplicate, recovery, and foreign-ownership contracts. No real write was exercised; all write-shape assumptions in `docs/api-assumptions.md` remain subject to a separately approved minimal real-LAPI plan.
 - Real LAPI origin-filter queries should not be a normal dependency due to a reported v1.7.8 issue.
 - Generic request-level LAPI retry is intentionally not exposed: retrying ambiguous POST creates would be unsafe. Authentication retries once after 401 and journal recovery handles ambiguous creates. Any future safe-method retry policy requires a separate design and tests.
 - Age/count retention, immutable prune planning, ambiguity blocking, and exact-confirmation application are implemented and verified; older notes that list these as pending are superseded.
 - Runtime production composition requires an exact validated `crowdsec.allowed_http_hosts` entry for plain-HTTP credentials. Deployment-specific configuration still requires operator review during packaging; no live configuration was changed here.
-- `README.md`, operator/deployment documentation, third-party notices, container/Compose files, CI, image SBOM/scanning, and measured non-root/read-only-root container behavior remain Phase 5 work.
+- The disposable mock image intentionally has no healthcheck (Trivy LOW DS-0026): the harness waits for its fixed readiness log on an internal-only network, and adding a probe utility would enlarge a short-lived scratch test image.
 - Final process/listener inspection found no repository executable process or Crowdshield listener. No background process was intentionally launched.
 
 ## Immediate next step
 
-Proceed to Phase 5 packaging and operator documentation: add the missing README/operator guidance and notices, then build and scan a multi-stage non-root image and development Compose definition without running or deploying Compose. Preserve the no-real-LAPI-write and no-production-change boundary unless separately approved.
+Review and publish the Phase 5 commit normally, verify local/remote/GitHub agreement, and retain the no-real-LAPI-write/no-production-change boundary. Deployment and any real-LAPI write test remain explicit operator actions.

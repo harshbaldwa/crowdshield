@@ -150,7 +150,7 @@ func TestClientCreateVerifyAndExpireContract(t *testing.T) {
 	defer client.CloseIdleConnections()
 	alertID, err := client.CreateAlert(context.Background(), CreateRequest{
 		FeedName:       "feed-one",
-		OperationToken: "0123456789abcdef0123456789abcdef",
+		OperationToken: "0123456789abcdef0123456789abcdef", // gitleaks:allow -- fixed synthetic idempotency token
 		Duration:       25 * time.Hour,
 		Decisions: []DecisionInput{
 			{Scope: "Range", Value: "8.8.8.0/24"},
