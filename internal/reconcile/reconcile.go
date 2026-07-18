@@ -250,6 +250,34 @@ type plannedAction struct {
 	old    *state.DecisionRecord
 }
 
+func decisionExpiry(decision lapi.Decision, now time.Time, maxDuration time.Duration) (time.Time, error) {
+	if decision.Until != "" {
+		expiry, err := time.Parse(time.RFC3339, decision.Until)
+		if err != nil {
+			return time.Time{}, err
+		}
+		return expiry.UTC(), nil
+	}
+
+	if decision.Duration == "" {
+		return time.Time{}, reconcileError(ErrOwnership, nil)
+	}
+
+	remaining, err := time.ParseDuration(decision.Duration)
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	// CrowdSec's alert-read response may return only the remaining duration
+	// rather than an absolute `until` timestamp. Keep it bounded by the
+	// originally configured decision duration.
+	if remaining < 0 || remaining > maxDuration {
+		return time.Time{}, reconcileError(ErrOwnership, nil)
+	}
+
+	return now.Add(remaining).UTC(), nil
+}
+
 func (r *Reconciler) verifiedAlert(operation state.Operation, remote lapi.Alert, records map[int64]state.EnforcementRecord, now time.Time) (state.VerifiedAlert, error) {
 	if remote.ID <= 0 || remote.MachineID != r.machineID || remote.Scenario != "crowdshield/"+operation.FeedName || remote.ScenarioHash != "crowdshield:"+operation.Token || len(remote.Decisions) != len(operation.Items) {
 		return state.VerifiedAlert{}, reconcileError(ErrOwnership, nil)
@@ -278,7 +306,7 @@ func (r *Reconciler) verifiedAlert(operation state.Operation, remote lapi.Alert,
 			return state.VerifiedAlert{}, reconcileError(ErrOwnership, nil)
 		}
 		seen[objectID] = struct{}{}
-		expires, err := time.Parse(time.RFC3339, decision.Until)
+		expires, err := decisionExpiry(decision, now, r.duration)
 		if err != nil || !expires.After(now) {
 			return state.VerifiedAlert{}, reconcileError(ErrOwnership, err)
 		}
@@ -320,7 +348,7 @@ func (r *Reconciler) expireOwned(ctx context.Context, decision state.DecisionRec
 		matched.Scenario != decision.Scenario || matched.Scope != string(decision.Scope) || matched.Value != decision.Value {
 		return reconcileError(ErrOwnership, nil)
 	}
-	expiry, parseErr := time.Parse(time.RFC3339, matched.Until)
+	expiry, parseErr := decisionExpiry(*matched, now, r.duration)
 	if parseErr != nil {
 		return reconcileError(ErrOwnership, parseErr)
 	}

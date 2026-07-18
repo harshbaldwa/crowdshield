@@ -292,8 +292,18 @@ func TestEveryOwnershipPredicateDriftBlocksDeletion(t *testing.T) {
 		{name: "duplicate decision ID", mutate: func(alert *lapi.Alert) {
 			alert.Decisions = append(alert.Decisions, alert.Decisions[0])
 		}},
-		{name: "missing expiry", mutate: func(alert *lapi.Alert) { alert.Decisions[0].Until = "" }},
-		{name: "malformed expiry", mutate: func(alert *lapi.Alert) { alert.Decisions[0].Until = "not-a-time" }},
+		{name: "missing expiry", mutate: func(alert *lapi.Alert) {
+			alert.Decisions[0].Until = ""
+			alert.Decisions[0].Duration = ""
+		}},
+		{name: "malformed expiry", mutate: func(alert *lapi.Alert) {
+			alert.Decisions[0].Until = ""
+			alert.Decisions[0].Duration = "not-a-duration"
+		}},
+		{name: "excessive remaining duration", mutate: func(alert *lapi.Alert) {
+			alert.Decisions[0].Until = ""
+			alert.Decisions[0].Duration = "26h"
+		}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -324,6 +334,68 @@ func TestEveryOwnershipPredicateDriftBlocksDeletion(t *testing.T) {
 				t.Fatal("ownership mismatch changed local active state")
 			}
 		})
+	}
+}
+
+func TestDecisionExpiryUsesAbsoluteUntil(t *testing.T) {
+	now := time.Date(2026, 7, 18, 21, 0, 0, 0, time.UTC)
+	want := now.Add(2 * time.Hour)
+
+	got, err := decisionExpiry(lapi.Decision{
+		Until: want.Format(time.RFC3339),
+	}, now, 25*time.Hour)
+	if err != nil {
+		t.Fatalf("decisionExpiry returned error: %v", err)
+	}
+	if !got.Equal(want) {
+		t.Fatalf("expiry = %s, want %s", got, want)
+	}
+}
+
+func TestDecisionExpiryUsesRemainingDurationWhenUntilMissing(t *testing.T) {
+	now := time.Date(2026, 7, 18, 21, 0, 0, 0, time.UTC)
+
+	got, err := decisionExpiry(lapi.Decision{
+		Duration: "24h53m35s",
+	}, now, 25*time.Hour)
+	if err != nil {
+		t.Fatalf("decisionExpiry returned error: %v", err)
+	}
+
+	want := now.Add(24*time.Hour + 53*time.Minute + 35*time.Second)
+	if !got.Equal(want) {
+		t.Fatalf("expiry = %s, want %s", got, want)
+	}
+}
+
+func TestDecisionExpiryRejectsMissingExpiryFields(t *testing.T) {
+	now := time.Date(2026, 7, 18, 21, 0, 0, 0, time.UTC)
+
+	_, err := decisionExpiry(lapi.Decision{}, now, 25*time.Hour)
+	if err == nil {
+		t.Fatal("decision without until or duration accepted")
+	}
+}
+
+func TestDecisionExpiryRejectsExcessiveRemainingDuration(t *testing.T) {
+	now := time.Date(2026, 7, 18, 21, 0, 0, 0, time.UTC)
+
+	_, err := decisionExpiry(lapi.Decision{
+		Duration: "26h",
+	}, now, 25*time.Hour)
+	if err == nil {
+		t.Fatal("decision duration greater than configured duration accepted")
+	}
+}
+
+func TestDecisionExpiryRejectsMalformedDuration(t *testing.T) {
+	now := time.Date(2026, 7, 18, 21, 0, 0, 0, time.UTC)
+
+	_, err := decisionExpiry(lapi.Decision{
+		Duration: "not-a-duration",
+	}, now, 25*time.Hour)
+	if err == nil {
+		t.Fatal("malformed decision duration accepted")
 	}
 }
 

@@ -97,20 +97,44 @@ type spamhausRecord struct {
 func parseSpamhaus(reader io.Reader, limits Limits) (Result, error) {
 	var result Result
 	metadataSeen := false
+
 	_, err := scan(reader, limits, func(line string, _ int) error {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			return nil
 		}
-		if !metadataSeen {
+
+		var envelope struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal([]byte(line), &envelope); err != nil {
+			result.TotalRecords++
+			result.Malformed++
+			return nil
+		}
+
+		if envelope.Type == "metadata" {
+			if metadataSeen {
+				return feedError(ErrMetadata, nil)
+			}
+
 			var metadata spamhausMetadata
 			if err := json.Unmarshal([]byte(line), &metadata); err != nil {
 				return feedError(ErrMetadata, err)
 			}
+
 			terms, err := url.Parse(metadata.Terms)
-			if err != nil || terms.Scheme != "https" || terms.Hostname() == "" || metadata.Type != "metadata" || metadata.Timestamp <= 0 || metadata.Records < 1 || strings.TrimSpace(metadata.Copyright) == "" || len(metadata.Copyright) > 2048 || len(metadata.Terms) > 2048 {
+			if err != nil ||
+				terms.Scheme != "https" ||
+				terms.Hostname() == "" ||
+				metadata.Timestamp <= 0 ||
+				metadata.Records < 1 ||
+				strings.TrimSpace(metadata.Copyright) == "" ||
+				len(metadata.Copyright) > 2048 ||
+				len(metadata.Terms) > 2048 {
 				return feedError(ErrMetadata, err)
 			}
+
 			result.Metadata = Metadata{
 				GeneratedAt:     time.Unix(metadata.Timestamp, 0).UTC(),
 				DeclaredRecords: metadata.Records,
@@ -121,29 +145,51 @@ func parseSpamhaus(reader io.Reader, limits Limits) (Result, error) {
 			return nil
 		}
 
+		// Spamhaus metadata is a terminal record. No CIDR record may occur after it.
+		if metadataSeen {
+			return feedError(ErrMetadata, nil)
+		}
+
 		result.TotalRecords++
+
+		// CIDR records currently have no type field. Reject unknown typed records
+		// through the bounded malformed-record policy.
+		if envelope.Type != "" {
+			result.Malformed++
+			return nil
+		}
+
 		var record spamhausRecord
 		if err := json.Unmarshal([]byte(line), &record); err != nil {
 			result.Malformed++
 			return nil
 		}
+
 		prefix, err := network.NormalizePrefix(record.CIDR)
 		if err != nil || !familyMatches(prefix.Addr().Is4(), limits.Family) {
 			result.Malformed++
 			return nil
 		}
-		result.Entries = append(result.Entries, Entry{Prefix: prefix, Kind: network.KindRange})
+
+		result.Entries = append(result.Entries, Entry{
+			Prefix: prefix,
+			Kind:   network.KindRange,
+		})
 		return nil
 	})
 	if err != nil {
 		return Result{}, err
 	}
-	if !metadataSeen || result.Metadata.DeclaredRecords != result.TotalRecords {
+
+	if !metadataSeen ||
+		result.Metadata.DeclaredRecords != result.TotalRecords {
 		return Result{}, feedError(ErrMetadata, nil)
 	}
+
 	if !malformedAllowed(result, limits) {
 		return Result{}, feedError(ErrMalformedThreshold, nil)
 	}
+
 	return result, nil
 }
 

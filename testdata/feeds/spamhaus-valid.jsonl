@@ -1,4 +1,4 @@
-{"type":"metadata","timestamp":1784246400,"copyright":"Copyright The Spamhaus Project","terms":"https://www.spamhaus.org/organization/legal/terms-of-use-for-free-data/","records":3}
 {"cidr":"8.8.8.0/24","sblid":"SBL000001"}
 {"cidr":"9.9.9.0/24","sblid":"SBL000002"}
 {"cidr":"11.22.33.0/24","sblid":"SBL000003"}
+{"type":"metadata","timestamp":1784246400,"copyright":"Copyright The Spamhaus Project","terms":"https://www.spamhaus.org/organization/legal/terms-of-use-for-free-data/","records":3}
