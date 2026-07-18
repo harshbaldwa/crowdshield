@@ -3,6 +3,8 @@ package health
 import (
 	"context"
 	"errors"
+	"io"
+	"log"
 	"net"
 	"net/http"
 	"sync"
@@ -31,6 +33,7 @@ type ServerOptions struct {
 	Handler  http.Handler
 	Clock    Clock
 	Observer Observer
+	ErrorLog *log.Logger
 
 	ReadHeaderTimeout time.Duration
 	ReadTimeout       time.Duration
@@ -68,9 +71,13 @@ func NewServer(options ServerOptions) (*Server, error) {
 	if options.Observer == nil {
 		options.Observer = noopObserver{}
 	}
+	if options.ErrorLog == nil {
+		options.ErrorLog = log.New(io.Discard, "", 0)
+	}
 	return &Server{
 		httpServer: &http.Server{
 			Handler:           options.Handler,
+			ErrorLog:          options.ErrorLog,
 			ReadHeaderTimeout: options.ReadHeaderTimeout,
 			ReadTimeout:       options.ReadTimeout,
 			WriteTimeout:      options.WriteTimeout,

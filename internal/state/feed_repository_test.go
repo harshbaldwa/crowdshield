@@ -34,6 +34,29 @@ func storedEntry(raw string, kind network.Kind) feed.Entry {
 	return feed.Entry{Prefix: prefix, Kind: kind}
 }
 
+func TestStoredEntryRejectsOverflowedKind(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
+	if _, err := store.EnsureFeeds(ctx, testDefinitions(), now); err != nil {
+		t.Fatal("unable to seed feed")
+	}
+	if _, err := store.ApplyFeedSnapshot(ctx, "feed-one", FeedSnapshot{
+		Version: stringsOf('e', 64), Entries: []feed.Entry{storedEntry("8.8.8.8/32", network.KindIP)},
+	}, 2, now); err != nil {
+		t.Fatal("unable to seed feed entry")
+	}
+	if _, err := store.db.ExecContext(ctx, `PRAGMA ignore_check_constraints=ON`); err != nil {
+		t.Fatal("unable to prepare corruption fixture")
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE feed_entries SET kind=257`); err != nil {
+		t.Fatal("unable to corrupt feed kind")
+	}
+	if _, err := store.ListActiveEntries(ctx); err == nil || !IsCategory(err, ErrIntegrity) {
+		t.Fatal("overflowed feed kind was accepted")
+	}
+}
+
 func TestEnsureFeedsKeepsStableIDsAndUpdatesDefinition(t *testing.T) {
 	store := openTestStore(t)
 	now := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
@@ -220,7 +243,11 @@ func TestFeedStateSurvivesReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal("reopen failed")
 	}
-	defer store.Close()
+	defer func() {
+		if err := store.Close(); err != nil {
+			t.Error("store close failed")
+		}
+	}()
 	entries, err := store.ListActiveEntries(ctx)
 	if err != nil || len(entries) != 1 || entries[0].FeedName != "feed-one" {
 		t.Fatal("durable feed state missing after reopen")

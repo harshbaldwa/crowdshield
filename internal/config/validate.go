@@ -25,7 +25,8 @@ func validateRetry(field string, retry RetryConfig) error {
 	if retry.MaxAttempts < 1 || retry.MaxAttempts > 10 {
 		return configError(ErrValidation, field+".max_attempts", nil)
 	}
-	if !positiveDuration(retry.InitialBackoff) || !positiveDuration(retry.MaxBackoff) || retry.InitialBackoff > retry.MaxBackoff {
+	if !positiveDuration(retry.InitialBackoff) || !positiveDuration(retry.MaxBackoff) ||
+		retry.InitialBackoff > retry.MaxBackoff || retry.MaxBackoff.Duration() > 24*time.Hour {
 		return configError(ErrDuration, field+".backoff", nil)
 	}
 	return nil
@@ -143,7 +144,8 @@ func validateFeed(cfg Config, index int, feed FeedConfig) error {
 	if math.IsNaN(feed.MaxShrinkRatio) || math.IsInf(feed.MaxShrinkRatio, 0) || feed.MaxShrinkRatio <= 0 || feed.MaxShrinkRatio > 1 {
 		return indexedError(ErrFeedThreshold, field, index, nil)
 	}
-	if feed.MaxMalformedLines < 0 || feed.MaxMalformedRatio < 0 || feed.MaxMalformedRatio > 1 {
+	if feed.MaxMalformedLines < 0 || math.IsNaN(feed.MaxMalformedRatio) || math.IsInf(feed.MaxMalformedRatio, 0) ||
+		feed.MaxMalformedRatio < 0 || feed.MaxMalformedRatio > 1 {
 		return indexedError(ErrFeedThreshold, field, index, nil)
 	}
 	if strings.TrimSpace(feed.Attribution) == "" || len(feed.Attribution) > 2048 || strings.ContainsAny(feed.Attribution, "\r\n\x00") {
@@ -193,13 +195,41 @@ func (c *Config) Validate() error {
 			return configError(ErrDuration, item.field, nil)
 		}
 	}
+	for _, timeout := range []Duration{
+		c.Server.ReadHeaderTimeout, c.Server.ReadTimeout, c.Server.WriteTimeout,
+		c.Server.IdleTimeout, c.Server.ShutdownTimeout,
+	} {
+		if timeout.Duration() > 10*time.Minute {
+			return configError(ErrDuration, "server.timeouts", nil)
+		}
+	}
+	if c.Server.ReadinessMaxSyncAge.Duration() > 30*24*time.Hour ||
+		c.Server.LAPIUnreachableGrace > c.Server.ReadinessMaxSyncAge {
+		return configError(ErrDuration, "server.readiness", nil)
+	}
+	if c.Schedule.Interval.Duration() > 30*24*time.Hour {
+		return configError(ErrDuration, "schedule.interval", nil)
+	}
+	if c.Database.BusyTimeout.Duration() > time.Minute ||
+		c.Database.HistoryRetention.Duration() < time.Hour ||
+		c.Database.HistoryRetention.Duration() > 10*365*24*time.Hour {
+		return configError(ErrDuration, "database.timeouts", nil)
+	}
+	if c.CrowdSec.RequestTimeout.Duration() > 2*time.Minute ||
+		c.CrowdSec.ConnectTimeout.Duration() > time.Minute {
+		return configError(ErrDuration, "crowdsec.timeouts", nil)
+	}
+	if c.Decisions.Duration.Duration() < time.Minute || c.Decisions.Duration.Duration() > 7*24*time.Hour {
+		return configError(ErrDuration, "decisions.duration", nil)
+	}
+	if c.Notifications.RequestTimeout.Duration() > 2*time.Minute ||
+		c.Notifications.StaleSyncAfter.Duration() > 30*24*time.Hour {
+		return configError(ErrDuration, "notifications.timeouts", nil)
+	}
 	if c.Schedule.StartupJitter.Duration() < 0 || c.Schedule.StartupJitter > c.Schedule.Interval {
 		return configError(ErrDuration, "schedule.startup_jitter", nil)
 	}
 	if err := validateRetry("schedule.retry", c.Schedule.Retry); err != nil {
-		return err
-	}
-	if err := validateRetry("crowdsec.retry", c.CrowdSec.Retry); err != nil {
 		return err
 	}
 	if !filepath.IsAbs(c.Database.Path) || c.Database.Path == string(filepath.Separator) {
@@ -216,7 +246,7 @@ func (c *Config) Validate() error {
 		return err
 	}
 	c.CrowdSec.AllowedHTTPHosts = allowedHTTPHosts
-	if c.CrowdSec.MaxResponseBytes < 1024 || c.CrowdSec.MaxResponseBytes > 64<<20 || c.CrowdSec.BatchSize < 1 || c.CrowdSec.BatchSize > 1000 {
+	if c.CrowdSec.MaxResponseBytes < 1024 || c.CrowdSec.MaxResponseBytes > 64<<20 || c.CrowdSec.BatchSize < 1 || c.CrowdSec.BatchSize > 500 {
 		return configError(ErrValidation, "crowdsec.limits", nil)
 	}
 	if c.CrowdSec.ConnectTimeout > c.CrowdSec.RequestTimeout || c.CrowdSec.AuthRefreshBefore.Duration() >= time.Hour {
@@ -228,7 +258,7 @@ func (c *Config) Validate() error {
 	if c.Decisions.RefreshBefore >= c.Decisions.Duration {
 		return configError(ErrDuration, "decisions.refresh_before", nil)
 	}
-	if c.Validation.MaxRedirects < 0 || c.Validation.MaxRedirects > 10 || c.Validation.MaxFeeds < 1 || c.Validation.MaxFeeds > 256 || c.Validation.MaxFeedNameLength < 1 || c.Validation.MaxFeedNameLength > 128 || c.Validation.MaxLineBytes < 1024 || c.Validation.MaxLineBytes > 1<<20 || c.Validation.MaxMalformedLines < 0 || c.Validation.MaxMalformedRatio < 0 || c.Validation.MaxMalformedRatio > 1 {
+	if c.Validation.MaxRedirects < 0 || c.Validation.MaxRedirects > 10 || c.Validation.MaxFeeds < 1 || c.Validation.MaxFeeds > 256 || c.Validation.MaxFeedNameLength < 1 || c.Validation.MaxFeedNameLength > 128 || c.Validation.MaxLineBytes < 1024 || c.Validation.MaxLineBytes > 1<<20 || c.Validation.MaxMalformedLines < 0 || math.IsNaN(c.Validation.MaxMalformedRatio) || math.IsInf(c.Validation.MaxMalformedRatio, 0) || c.Validation.MaxMalformedRatio < 0 || c.Validation.MaxMalformedRatio > 1 {
 		return configError(ErrValidation, "validation", nil)
 	}
 	if strings.Count(c.Validation.UserAgent, "/") != 1 || len(c.Validation.UserAgent) > 128 || strings.ContainsAny(c.Validation.UserAgent, "\r\n\x00") {

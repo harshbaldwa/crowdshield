@@ -350,7 +350,7 @@ func TestRuntimePrunesDueHistoryBeforeAuthentication(t *testing.T) {
 	prune := actionIndex(t, values, "prune")
 	pruneEvent := actionIndex(t, values, "event:prune_completed")
 	authenticate := actionIndex(t, values, "authenticate")
-	if !(pruneTimestamp < prune && prune < pruneEvent && pruneEvent < authenticate) {
+	if pruneTimestamp >= prune || prune >= pruneEvent || pruneEvent >= authenticate {
 		t.Fatalf("history pruning did not complete before authentication: %v", values)
 	}
 }

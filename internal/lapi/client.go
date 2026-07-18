@@ -24,8 +24,11 @@ import (
 )
 
 const (
-	maxTokenBytes = 16 << 10
-	maxBatchSize  = 500
+	maxTokenBytes              = 16 << 10
+	maxBatchSize               = 500
+	maxDecisionDuration        = 7 * 24 * time.Hour
+	maxOperationSearchResults  = 100
+	operationSearchRequestSize = maxOperationSearchResults + 1
 )
 
 var (
@@ -101,6 +104,11 @@ func New(options Options) (*Client, error) {
 		}
 		options.HTTPClient = &http.Client{Transport: transport}
 	}
+	httpClient := *options.HTTPClient
+	httpClient.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	options.HTTPClient = &httpClient
 	return &Client{
 		credentials: options.Credentials, base: endpoint, userAgent: options.UserAgent,
 		requestTimeout: options.RequestTimeout, maxResponseBytes: options.MaxResponseBytes,
@@ -185,7 +193,7 @@ func (c *Client) perform(ctx context.Context, method, route string, query url.Va
 	if response == nil || response.Body == nil {
 		return nil, lapiError(ErrContract, nil)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.ContentLength > c.maxResponseBytes {
 		return nil, lapiError(ErrResponseSize, nil)
 	}
@@ -240,10 +248,8 @@ type loginResponse struct {
 }
 
 func (c *Client) loginLocked(ctx context.Context) error {
-	password := c.credentials.Password()
 	responseBody, err := c.perform(ctx, http.MethodPost, "/watchers/login", nil,
-		loginRequest{MachineID: c.credentials.Login(), Password: password}, "", http.StatusOK)
-	password = ""
+		loginRequest{MachineID: c.credentials.Login(), Password: c.credentials.Password()}, "", http.StatusOK)
 	if err != nil {
 		return err
 	}
@@ -358,7 +364,7 @@ func canonicalDecision(input DecisionInput) (DecisionInput, error) {
 
 func buildWireAlert(request CreateRequest, now time.Time) (wireAlert, error) {
 	if !clientFeedName.MatchString(request.FeedName) || len(request.FeedName) > 64 || !operationToken.MatchString(request.OperationToken) ||
-		request.Duration < time.Minute || request.Duration > 7*24*time.Hour || len(request.Decisions) < 1 || len(request.Decisions) > maxBatchSize {
+		request.Duration < time.Minute || request.Duration > maxDecisionDuration || len(request.Decisions) < 1 || len(request.Decisions) > maxBatchSize {
 		return wireAlert{}, lapiError(ErrContract, nil)
 	}
 	scenario := "crowdshield/" + request.FeedName
@@ -447,8 +453,8 @@ func (c *Client) FindOperation(ctx context.Context, feedName, token string) (Ale
 	}
 	query := url.Values{}
 	query.Set("scenario", "crowdshield/"+feedName)
-	query.Set("since", "24h")
-	query.Set("limit", "100")
+	query.Set("since", strconv.FormatInt(int64(maxDecisionDuration/time.Hour), 10)+"h")
+	query.Set("limit", strconv.Itoa(operationSearchRequestSize))
 	body, err := c.authenticated(ctx, http.MethodGet, "/alerts", query, nil, http.StatusOK)
 	if err != nil {
 		return Alert{}, false, err
@@ -457,7 +463,7 @@ func (c *Client) FindOperation(ctx context.Context, feedName, token string) (Ale
 	if err := decodeJSON(body, &alerts); err != nil {
 		return Alert{}, false, err
 	}
-	if len(alerts) > 100 {
+	if len(alerts) > maxOperationSearchResults {
 		return Alert{}, false, lapiError(ErrContract, nil)
 	}
 	targetHash := "crowdshield:" + token

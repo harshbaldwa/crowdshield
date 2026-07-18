@@ -223,20 +223,23 @@ func expectedNetworkValue(prefix netip.Prefix, scope network.Scope) string {
 func operationHash(kind state.OperationKind, feedID int64, duration time.Duration, actions []plannedAction) string {
 	hash := sha256.New()
 	_, _ = hash.Write([]byte(kind))
-	var buffer [8]byte
-	binary.BigEndian.PutUint64(buffer[:], uint64(feedID))
-	_, _ = hash.Write(buffer[:])
-	binary.BigEndian.PutUint64(buffer[:], uint64(duration/time.Second))
-	_, _ = hash.Write(buffer[:])
+	if err := binary.Write(hash, binary.BigEndian, feedID); err != nil {
+		return ""
+	}
+	if err := binary.Write(hash, binary.BigEndian, int64(duration/time.Second)); err != nil {
+		return ""
+	}
 	for _, action := range actions {
-		binary.BigEndian.PutUint64(buffer[:], uint64(action.object.ID))
-		_, _ = hash.Write(buffer[:])
+		if err := binary.Write(hash, binary.BigEndian, action.object.ID); err != nil {
+			return ""
+		}
 		_, _ = hash.Write([]byte(action.object.Scope))
 		_, _ = hash.Write([]byte{0})
 		_, _ = hash.Write([]byte(objectValue(action.object)))
 		if action.old != nil {
-			binary.BigEndian.PutUint64(buffer[:], uint64(action.old.ID))
-			_, _ = hash.Write(buffer[:])
+			if err := binary.Write(hash, binary.BigEndian, action.old.ID); err != nil {
+				return ""
+			}
 		}
 	}
 	return hex.EncodeToString(hash.Sum(nil))
@@ -305,21 +308,27 @@ func (r *Reconciler) expireOwned(ctx context.Context, decision state.DecisionRec
 	var matched *lapi.Decision
 	for index := range remote.Decisions {
 		candidate := &remote.Decisions[index]
-		if candidate.ID == decision.DecisionID {
-			matched = candidate
-			break
+		if candidate.ID != decision.DecisionID {
+			continue
 		}
+		if matched != nil {
+			return reconcileError(ErrOwnership, nil)
+		}
+		matched = candidate
 	}
-	if matched == nil || matched.Origin != "crowdshield" || matched.Scenario != decision.Scenario || matched.Scope != string(decision.Scope) || matched.Value != decision.Value {
+	if matched == nil || matched.Origin != "crowdshield" || matched.Type != "ban" ||
+		matched.Scenario != decision.Scenario || matched.Scope != string(decision.Scope) || matched.Value != decision.Value {
 		return reconcileError(ErrOwnership, nil)
 	}
-	if matched.Until != "" {
-		if expiry, parseErr := time.Parse(time.RFC3339, matched.Until); parseErr == nil && !expiry.After(now) {
-			if err := r.store.MarkDecisionExpired(ctx, decision.ID, now); err != nil {
-				return reconcileError(ErrState, err)
-			}
-			return nil
+	expiry, parseErr := time.Parse(time.RFC3339, matched.Until)
+	if parseErr != nil {
+		return reconcileError(ErrOwnership, parseErr)
+	}
+	if !expiry.After(now) {
+		if err := r.store.MarkDecisionExpired(ctx, decision.ID, now); err != nil {
+			return reconcileError(ErrState, err)
 		}
+		return nil
 	}
 	if err := r.lapi.ExpireDecision(ctx, decision.DecisionID); err != nil && !lapi.IsCategory(err, lapi.ErrNotFound) {
 		report.LAPIRequests++

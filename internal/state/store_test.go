@@ -89,7 +89,7 @@ func TestOpenReadOnlyNeverCreatesOrMutatesDatabase(t *testing.T) {
 
 func TestOpenAppliesSchemaAndRequiredPragmas(t *testing.T) {
 	store := openTestStore(t)
-	if version, err := store.SchemaVersion(context.Background()); err != nil || version != 2 {
+	if version, err := store.SchemaVersion(context.Background()); err != nil || version != 3 {
 		t.Fatal("unexpected schema version")
 	}
 	var foreignKeys int
@@ -123,7 +123,11 @@ func TestMigrationFailureRollsBackAtomically(t *testing.T) {
 	if err != nil {
 		t.Fatal("unable to open migration database")
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Error("database close failed")
+		}
+	}()
 	firstSQL := "CREATE TABLE first_table(id INTEGER PRIMARY KEY);"
 	first := migrations.Migration{Version: 1, Name: "001_first.sql", SQL: firstSQL, Checksum: checksum(firstSQL)}
 	if err := Migrate(context.Background(), db, []migrations.Migration{first}); err != nil {
@@ -135,11 +139,11 @@ func TestMigrationFailureRollsBackAtomically(t *testing.T) {
 		t.Fatal("broken migration succeeded")
 	}
 	var count int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='half_applied'`).Scan(&count); err != nil || count != 0 {
+	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='half_applied'`).Scan(&count); err != nil || count != 0 {
 		t.Fatal("failed migration left partial schema")
 	}
 	var version int
-	if err := db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil || version != 1 {
+	if err := db.QueryRowContext(context.Background(), `SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil || version != 1 {
 		t.Fatal("failed migration changed recorded version")
 	}
 }
@@ -149,7 +153,11 @@ func TestMigrationChecksumMismatchFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal("unable to open migration database")
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Error("database close failed")
+		}
+	}()
 	body := "CREATE TABLE stable(id INTEGER PRIMARY KEY);"
 	original := migrations.Migration{Version: 1, Name: "001_stable.sql", SQL: body, Checksum: checksum(body)}
 	if err := Migrate(context.Background(), db, []migrations.Migration{original}); err != nil {

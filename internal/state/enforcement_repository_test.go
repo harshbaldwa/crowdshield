@@ -65,6 +65,21 @@ func TestApplyEnforcementPlanPreservesSourcesAndMarksStale(t *testing.T) {
 	}
 }
 
+func TestListEnforcementObjectsRejectsOverflowedSourceKind(t *testing.T) {
+	store := openTestStore(t)
+	seedEnforcementPlan(t, store)
+	ctx := context.Background()
+	if _, err := store.db.ExecContext(ctx, `PRAGMA ignore_check_constraints=ON`); err != nil {
+		t.Fatal("unable to prepare corruption fixture")
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE enforcement_sources SET source_kind=257`); err != nil {
+		t.Fatal("unable to corrupt source kind")
+	}
+	if _, err := store.ListEnforcementObjects(ctx); err == nil || !IsCategory(err, ErrIntegrity) {
+		t.Fatal("overflowed source kind was accepted")
+	}
+}
+
 func TestOperationJournalRecordsVerifiedOwnedDecisions(t *testing.T) {
 	store := openTestStore(t)
 	records, feeds, now := seedEnforcementPlan(t, store)

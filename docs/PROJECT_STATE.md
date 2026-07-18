@@ -1,13 +1,13 @@
 # Crowdshield Project State
 
-Canonical state timestamp: 2026-07-18T01:17:32-05:00
+Canonical state timestamp: 2026-07-18T12:58:41-05:00
 
 ## Project identity and boundary
 
 - Project/module/binary/container: `crowdshield`
 - License: MIT
 - Repository: `/home/vicky/homelab/containers/crowdshield`
-- Git: branch `main` at `cf5949c0f51855224af5bdbb1f360044750bb527` (`first commit`); local HEAD, `origin/main`, and the read-only live GitHub `main` head match with zero ahead/behind; the working tree was clean at session reconstruction
+- Git: branch `main`, tracking `origin/main` at `https://github.com/harshbaldwa/crowdshield.git`; the Phase 4 diff is reviewed locally before normal publication, and no history rewrite is permitted
 - Allowed writes: this repository only
 - Production deployment and production-service changes: prohibited
 - Real CrowdSec decision writes: prohibited without explicit user approval
@@ -30,7 +30,7 @@ Observed from the live repository at `2026-07-18T00:10:13-05:00` before new impl
 
 ## Current milestone
 
-Phases 1, 2, 3a, 3b, and 3c are complete. Phase 4 (bounded testing and hardening) is next; no deployment or real LAPI write has been authorized.
+Phases 1, 2, 3a, 3b, 3c, and 4 are complete. Phase 5 (packaging and operator documentation) is next; no deployment or real LAPI write has been authorized.
 
 Detailed evidence and design baseline:
 
@@ -76,7 +76,7 @@ Detailed evidence and design baseline:
 - Implemented a dependency-free, concurrency-safe Prometheus text registry with fixed descriptors, configured-feed label bounds, deterministic exposition, build information, HTTP method handling, and last-known-good active-decision gauge behavior.
 - Implemented concurrency-safe liveness/readiness state, bounded readiness reasons, synchronization freshness and LAPI grace handling, fixed JSON handlers, and a cancellable observability HTTP server with bounded lifecycle events.
 - Implemented optional ntfy delivery using fixed templates and bounded request/response handling, plus threshold, cooldown, deduplication, recovery, stale-sync, startup, and opt-in success policies. Notifications remain disabled by default.
-- Added migration 2 and a validated SQLite notification-delivery-state repository. Persisted notification state contains only closed enum state, counters, and timestamps; it contains no destination, token, request body, message, raw error, or network indicator.
+- Added migration 2 and a validated SQLite notification-delivery-state repository, then migration 3 to align its failure-category CHECK constraint with the canonical closed `internal/ops` vocabulary while preserving version-2 rows. Persisted notification state contains only closed enum state, counters, and timestamps; it contains no destination, token, request body, message, raw error, or network indicator.
 - Implemented bounded synchronization history, per-feed run results, interrupted-run recovery, monotonic typed runtime timestamps, and transactional age-based pruning of terminal Crowdshield history. Pruning preserves running work, pending/ambiguous journals, active decisions, desired or referenced enforcement objects, active/recent feed entries, and notification deduplication state.
 - Added the runtime-composition package under `internal/app`, including a privacy boundary converting synchronization reports and categorized failures into validated bounded operational results while discarding raw error text.
 - Added validated operational-event fan-out to the closed JSON logger, metrics registry, and readiness tracker. Invalid events are dropped before any sink.
@@ -96,6 +96,14 @@ Detailed evidence and design baseline:
 - Enforced `database.max_history_entries` in both runtime and operator pruning, in addition to age retention, while preserving running sync rows. `go mod tidy` promoted the directly imported SQLite module and added its missing transitive checksums.
 - Fixed two instrumentation-sensitive test synchronization gaps discovered by the full race gate: runtime readiness now waits for a served `/healthz`, and scheduler transition assertions wait for the next anchored timer. No production concurrency defect or race report was observed.
 - Through the final Phase 3c checkpoint, made no deployment, feed-network enforcing run, real CrowdSec write, Git commit, image publication, registry push, container/network change, or production-service/configuration modification.
+- Phase 4 hardened exact deletion proof: remote decision type must be `ban`, the exact ID must occur once, and live expiry must be present and parseable before exact-ID expiration.
+- Phase 4 expanded ambiguous-operation recovery to the maximum seven-day decision lifetime and uses a 101st sentinel record to detect truncation while processing at most 100 results.
+- Phase 4 disabled LAPI redirects so machine credentials cannot be forwarded through 307/308 responses, and wired net/http internal diagnostics through the existing sanitized logger with a safe discard fallback.
+- Phase 4 aligned configuration validation with all downstream constructor bounds, rejects NaN malformed ratios, reduced the LAPI batch ceiling to the implemented 500, and removed the unused `crowdsec.retry` configuration surface rather than implying unsafe generic POST retries.
+- Phase 4 added migration 3 for canonical notification failure categories, verified version-2 upgrade preservation, and replaced wrapping database enum conversions with closed checked decoding that rejects corrupted values.
+- Phase 4 added direct tests for every deletion ownership predicate, LAPI redirect rejection, recovery query completeness, dry-run mutator guards, production operation-token generation, special-purpose DNS answers, configuration bounds, all notification failure categories, and schema upgrades.
+- Phase 4 corrected the v1.7.8 create-response documentation to the verified string-ID array and addressed all default and focused Go analyzer findings, with narrow reviewed annotations only for intentional fixture/path behavior.
+- Through Phase 4, made no deployment, real feed synchronization, real CrowdSec write, image publication, registry push, container/network change, or production-service/configuration modification.
 
 ## Verified external interfaces
 
@@ -120,7 +128,7 @@ Detailed evidence and design baseline:
 - Spamhaus v6: `https://www.spamhaus.org/drop/drop_v6.json`, NDJSON, IPv6
 - FireHOL Level 1: `https://iplists.firehol.org/files/firehol_level1.netset`, comment-prefixed netset text, IPv4
 
-## Current architecture (Phase 3c complete)
+## Current architecture (Phase 4 complete)
 
 One Go process with:
 
@@ -238,16 +246,21 @@ Final Phase 3c evidence at `2026-07-18T01:17:32-05:00`:
 - the final residual process/listener command was denied by the execution guard and was not retried or reformulated. Residual-process state therefore remains explicitly unverified, although all bounded test servers completed and no background process was intentionally started;
 - no real feed synchronization, real LAPI write, deployment, container, network, registry, or production-service action occurred.
 
-Required quality gates remain:
+Final Phase 4 evidence at `2026-07-18T12:58:41-05:00`:
 
-- `staticcheck ./...`
-- `golangci-lint run`
-- coverage report
-- vulnerability scan
-- SBOM generation
-- secure container build and size measurement
+- `gofmt`, `go mod tidy -diff`, and `go mod verify` passed; module verification reported `all modules verified`.
+- `go test -count=1 ./...`, `go test -race -count=1 ./...`, and `go vet ./...` passed across all 20 packages.
+- `go build -trimpath -o .tmp/crowdshield ./cmd/crowdshield` succeeded. The ignored linux/amd64 binary measured 17,787,987 bytes, returned the expected development version, and dispatched complete help successfully.
+- Atomic statement coverage is 73.7% aggregate. High-risk package coverage includes app 70.9%, config 70.0%, credentials 80.7%, feed 79.2%, LAPI 81.6%, network 79.8%, reconcile 70.3%, state 69.8%, and syncer 74.5%.
+- Staticcheck v0.7.0, golangci-lint v2.12.2 default checks, and an expanded body-close/gosec/no-context/row-error/SQL-close profile all passed with zero issues.
+- govulncheck v1.6.0 reported `No vulnerabilities found.`
+- A CycloneDX 1.6 source SBOM was generated under ignored `.tmp/` with 9 external components. The built binary metadata and the material module list were captured separately under ignored `.tmp/`.
+- The linux/amd64 binary includes 2 direct and 7 material transitive external modules. All are MIT, BSD-3-Clause, or YAML's MIT/Apache-2.0 dual license. `modernc.org/mathutil` is a go-licenses false negative but its cached v1.7.1 license is verified BSD-3-Clause; `modernc.org/libc` also carries third-party MIT material. Future binary/image distributions must include the applicable MIT/BSD notices. Graph-only modules are not compiled into the binary; the graph-only HashiCorp MPL-2.0 module creates no current distribution obligation.
+- Tracked-artifact and privacy scans found no ignored tracked files, databases, executables, archives, private keys, JWTs, real tokens, or generated coverage/SBOM output. Two bearer-shaped matches are intentional redaction fixtures.
+- Final private snapshots contained 586 process rows and 33 listener rows versus baseline counts of 585 and 33. No process executable resolved inside this repository and no listener mentioned Crowdshield or this repository.
+- No real feed synchronization, real LAPI write, deployment, image publication, registry push, container/network change, or production-service/configuration modification occurred.
 
-The host still lacks global Go and the analysis/scanning tools. The verified project-local Go 1.26.5 toolchain and all Go caches/temporary files stay under ignored repository paths.
+All Go analysis/scanning tools, SBOMs, binaries, caches, and reports remain under ignored project-local paths. Container build/size/image-SBOM/image-scan gates belong to Phase 5 because no container packaging exists yet.
 
 ## Pending phases
 
@@ -279,13 +292,13 @@ Strict vertical TDD status (Phase 3 complete through 3c):
 - runtime composition and lifecycle (implemented and full-suite/race-tested, including production constructors, partial-startup cleanup, startup authentication/recovery/pruning, stale notification checks, signal cancellation, and ordered shutdown);
 - production CLI command composition, privacy, read-only guarantees, stable exit codes, dry-run behavior, enforcing one-shot behavior, and operator lifecycle (implemented and verified).
 
-### Phase 4: testing and hardening
+### Phase 4: testing and hardening (completed)
 
-- Run all required tests and static checks.
-- Generate coverage.
-- Run vulnerability/license checks.
-- Perform one bounded review/fix pass.
-- Do not use real LAPI writes.
+- Completed normal, race, vet, formatting, module-integrity, build, CLI-smoke, and atomic coverage gates.
+- Completed Staticcheck, default and expanded golangci-lint, govulncheck, CycloneDX source SBOM, and material dependency/license review.
+- Completed one bounded manual security/correctness review and test-first repair pass.
+- Completed privacy, tracked-artifact, process, and listener checks.
+- Used no real LAPI writes, deployment, Compose, registry, or production action.
 
 ### Phase 5: packaging and documentation
 
@@ -301,15 +314,16 @@ Report observed commands/results, sizes, coverage, scan findings, limitations, e
 
 ## Technical debt / open questions
 
-- Feed terms are accepted for this project; future upstream term changes still require operator review.
-- YAML v3.0.4 and modernc SQLite v1.54.0 are present and verified by the completed Phase 3b suite. Full vulnerability/license scanning remains pending for Phase 4.
-- The mock LAPI covers authentication, create/read/expire, duplicate, recovery, and foreign-ownership contracts. Explicit runtime startup authentication, observer fan-out, and ordered lifecycle now have focused tests; no real write was exercised.
+- Feed terms are accepted for this project; future upstream term changes still require operator review. FireHOL Level 1 remains an explicitly accepted aggregate with `license=unknown`, so attribution and non-redistribution guidance must remain prominent.
+- Source vulnerability and material license reviews are complete. Phase 5 binary/image distributions must add a third-party-notices artifact covering the applicable MIT/BSD notices, including modernc libc's third-party MIT material.
+- The mock LAPI covers authentication, create/read/expire, duplicate, recovery, and foreign-ownership contracts. No real write was exercised; all write-shape assumptions in `docs/api-assumptions.md` remain subject to a separately approved minimal real-LAPI plan.
 - Real LAPI origin-filter queries should not be a normal dependency due to a reported v1.7.8 issue.
-- No real-LAPI write behavior has been exercised; that remains intentionally deferred to a separately approved plan.
+- Generic request-level LAPI retry is intentionally not exposed: retrying ambiguous POST creates would be unsafe. Authentication retries once after 401 and journal recovery handles ambiguous creates. Any future safe-method retry policy requires a separate design and tests.
 - Age/count retention, immutable prune planning, ambiguity blocking, and exact-confirmation application are implemented and verified; older notes that list these as pending are superseded.
 - Runtime production composition requires an exact validated `crowdsec.allowed_http_hosts` entry for plain-HTTP credentials. Deployment-specific configuration still requires operator review during packaging; no live configuration was changed here.
-- Residual process/listener state was not inspected at the final checkpoint because the read-only inspection command was denied and not retried. No background process was intentionally launched.
+- `README.md`, operator/deployment documentation, third-party notices, container/Compose files, CI, image SBOM/scanning, and measured non-root/read-only-root container behavior remain Phase 5 work.
+- Final process/listener inspection found no repository executable process or Crowdshield listener. No background process was intentionally launched.
 
 ## Immediate next step
 
-Perform one bounded Phase 4 hardening pass: coverage, vulnerability/license tooling, static analysis if available, and a single review/fix cycle. Preserve the no-deployment/no-real-LAPI-write boundary, and do not expand into packaging or production changes without explicit approval.
+Proceed to Phase 5 packaging and operator documentation: add the missing README/operator guidance and notices, then build and scan a multi-stage non-root image and development Compose definition without running or deploying Compose. Preserve the no-real-LAPI-write and no-production-change boundary unless separately approved.

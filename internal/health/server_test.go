@@ -42,6 +42,16 @@ func serverOptions(handler http.Handler, clock Clock, observer Observer) ServerO
 	}
 }
 
+func TestServerNeverFallsBackToProcessDefaultErrorLogger(t *testing.T) {
+	server, err := NewServer(serverOptions(http.NotFoundHandler(), systemClock{}, &eventCollector{}))
+	if err != nil {
+		t.Fatal("unable to construct server")
+	}
+	if server.httpServer.ErrorLog == nil {
+		t.Fatal("HTTP server would use the process default error logger")
+	}
+}
+
 func waitServer(t *testing.T, done <-chan error) error {
 	t.Helper()
 	select {
@@ -67,14 +77,19 @@ func TestServerServesAndShutsDownIdempotentlyWithLifecycleEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal("valid HTTP server options rejected")
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listenConfig := net.ListenConfig{}
+	listener, err := listenConfig.Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal("loopback listener failed")
 	}
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
 	client := &http.Client{Timeout: time.Second}
-	response, err := client.Get("http://" + listener.Addr().String() + "/healthz")
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://"+listener.Addr().String()+"/healthz", nil)
+	if err != nil {
+		t.Fatal("construct HTTP health request")
+	}
+	response, err := client.Do(request)
 	if err != nil {
 		t.Fatal("HTTP health request failed")
 	}
@@ -112,7 +127,8 @@ func TestServerShutdownIsBoundedAndForceClosesConnections(t *testing.T) {
 	if err != nil {
 		t.Fatal("valid bounded HTTP server options rejected")
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listenConfig := net.ListenConfig{}
+	listener, err := listenConfig.Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal("loopback listener failed")
 	}
@@ -121,7 +137,12 @@ func TestServerShutdownIsBoundedAndForceClosesConnections(t *testing.T) {
 	requestDone := make(chan error, 1)
 	go func() {
 		client := &http.Client{Timeout: time.Second}
-		response, requestErr := client.Get("http://" + listener.Addr().String() + "/blocked")
+		request, requestErr := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://"+listener.Addr().String()+"/blocked", nil)
+		if requestErr != nil {
+			requestDone <- requestErr
+			return
+		}
+		response, requestErr := client.Do(request)
 		if response != nil {
 			_ = response.Body.Close()
 		}

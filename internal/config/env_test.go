@@ -37,6 +37,13 @@ func TestEnvironmentOverridesUseTypedValidation(t *testing.T) {
 	}
 }
 
+func TestEnvironmentRejectsUnusedCrowdSecRetryOverride(t *testing.T) {
+	_, err := testLoader("CROWDSHIELD_CROWDSEC_RETRY_MAX_ATTEMPTS=9").Load(writeConfig(t, "{}\n"))
+	if err == nil || !IsCategory(err, ErrEnvironment) {
+		t.Fatal("unused CrowdSec retry override was accepted")
+	}
+}
+
 func TestEnvironmentRejectsUnknownCrowdshieldVariable(t *testing.T) {
 	const canary = "value-canary-do-not-emit"
 	_, err := testLoader("CROWDSHIELD_UNKNOWN_SETTING=" + canary).Load(writeConfig(t, "{}\n"))

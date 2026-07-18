@@ -277,7 +277,7 @@ func TestHTTPExpositionIsValidDeterministicPrometheusText(t *testing.T) {
 	if err != nil {
 		t.Fatal("valid HTTP metrics registry rejected")
 	}
-	request := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/metrics", nil)
 	response := httptest.NewRecorder()
 	registry.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
@@ -293,7 +293,7 @@ func TestHTTPExpositionIsValidDeterministicPrometheusText(t *testing.T) {
 	}
 
 	unsupported := httptest.NewRecorder()
-	registry.ServeHTTP(unsupported, httptest.NewRequest(http.MethodPost, "/metrics", nil))
+	registry.ServeHTTP(unsupported, httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/metrics", nil))
 	if unsupported.Code != http.StatusMethodNotAllowed {
 		t.Fatal("metrics handler accepted an unsupported method")
 	}

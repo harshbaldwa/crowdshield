@@ -35,10 +35,6 @@ crowdsec:
   max_response_bytes: 8388608
   batch_size: 250
   auth_refresh_before: "5m"
-  retry:
-    max_attempts: 3
-    initial_backoff: "1s"
-    max_backoff: "30s"
 
 decisions:
   duration: "25h"

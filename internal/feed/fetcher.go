@@ -331,7 +331,7 @@ func (f *Fetcher) Fetch(ctx context.Context, request FetchRequest) (FetchResult,
 	if response == nil || response.Body == nil {
 		return FetchResult{}, feedError(ErrRequest, nil)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	etag, lastModified, err := responseValidators(response.Header)
 	if err != nil {

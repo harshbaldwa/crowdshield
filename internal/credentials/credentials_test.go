@@ -94,6 +94,7 @@ func TestLoadRejectsOversizedCredential(t *testing.T) {
 
 func TestLoadRejectsUnsafePermissions(t *testing.T) {
 	path := writeCredential(t, validCredentialBody(), 0o644)
+	// #nosec G302 -- deliberately creates an insecure-permission negative-test fixture.
 	if err := os.Chmod(path, 0o644); err != nil {
 		t.Fatal("unable to set credential fixture mode")
 	}

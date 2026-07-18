@@ -117,7 +117,7 @@ func verifyReadOnlyMigrations(ctx context.Context, db *sql.DB) error {
 	if err != nil {
 		return stateError(ErrMigration, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	index := 0
 	for rows.Next() {
 		if index >= len(all) {
@@ -203,7 +203,7 @@ func (s *Store) QuickCheck(ctx context.Context) error {
 	if err != nil {
 		return stateError(ErrIntegrity, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	count := 0
 	for rows.Next() {
 		count++

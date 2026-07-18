@@ -43,11 +43,12 @@ func (l Loader) Load(path string) (Config, error) {
 		maxBytes = DefaultMaxConfigBytes
 	}
 
+	// #nosec G304 -- loading the validated operator-selected config path is the intended operation.
 	file, err := os.Open(path)
 	if err != nil {
 		return Config{}, configError(ErrPath, "config", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	stat, err := file.Stat()
 	if err != nil || !stat.Mode().IsRegular() {

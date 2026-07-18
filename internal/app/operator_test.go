@@ -86,6 +86,7 @@ func TestRunCLIStartsProductionRuntimeAndCancelsCleanly(t *testing.T) {
 		}
 		login <- struct{}{}
 		writer.Header().Set("Content-Type", "application/json")
+		// #nosec G101 -- deliberate non-secret token fixture.
 		_ = json.NewEncoder(writer).Encode(map[string]any{
 			"code": 200, "expire": time.Now().Add(time.Hour).UTC().Format(time.RFC3339), "token": "run-jwt-canary",
 		})
@@ -102,7 +103,8 @@ func TestRunCLIStartsProductionRuntimeAndCancelsCleanly(t *testing.T) {
 	cfg.Database.Path = filepath.Join(temporary, "crowdshield.db")
 	cfg.CrowdSec.CredentialsFile = credentialPath
 	cfg.CrowdSec.AllowedHTTPHosts = []string{"127.0.0.1"}
-	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	listenConfig := net.ListenConfig{}
+	probe, err := listenConfig.Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal("reserve loopback port")
 	}
@@ -123,7 +125,12 @@ func TestRunCLIStartsProductionRuntimeAndCancelsCleanly(t *testing.T) {
 		deadline := time.Now().Add(2 * time.Second)
 		client := &http.Client{Timeout: 100 * time.Millisecond}
 		for {
-			response, err := client.Get("http://" + cfg.Server.ListenAddress + "/healthz")
+			request, requestErr := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+cfg.Server.ListenAddress+"/healthz", nil)
+			if requestErr != nil {
+				cancel()
+				t.Fatal("construct health request")
+			}
+			response, err := client.Do(request)
 			if err == nil {
 				_ = response.Body.Close()
 				if response.StatusCode == http.StatusOK {
@@ -183,6 +190,7 @@ func TestSyncCLIDryRunPlansWithoutStateOrLAPIMutation(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatal("close state fixture")
 	}
+	// #nosec G304 -- databasePath is created beneath this test's temporary directory.
 	before, err := os.ReadFile(databasePath)
 	if err != nil {
 		t.Fatal("read state fixture before dry-run")
@@ -208,6 +216,7 @@ func TestSyncCLIDryRunPlansWithoutStateOrLAPIMutation(t *testing.T) {
 		result.Counts.LAPIRequests != 0 || fetcher.calls != 1 || lapiCalls != 0 {
 		t.Fatal("dry-run did not return the expected local aggregate plan")
 	}
+	// #nosec G304 -- databasePath is created beneath this test's temporary directory.
 	after, err := os.ReadFile(databasePath)
 	if err != nil {
 		t.Fatal("read state fixture after dry-run")
@@ -297,7 +306,11 @@ func TestSyncCLIEnforceAuthenticatesWritesOneOwnedDecisionAndHistory(t *testing.
 	if err != nil {
 		t.Fatal("open enforcing state read-only")
 	}
-	defer store.Close()
+	defer func() {
+		if err := store.Close(); err != nil {
+			t.Error("store close failed")
+		}
+	}()
 	runs, err := store.ListSyncRuns(context.Background(), 10)
 	if err != nil || len(runs) != 1 || runs[0].Status != state.RunStatusSuccess {
 		t.Fatal("enforcing sync history was not completed exactly once")
@@ -393,7 +406,11 @@ func TestSyncCLIEnforceRecordsLAPIAuthFailureBeforeFeedFetch(t *testing.T) {
 	if err != nil {
 		t.Fatal("open failed-auth state read-only")
 	}
-	defer store.Close()
+	defer func() {
+		if err := store.Close(); err != nil {
+			t.Error("store close failed")
+		}
+	}()
 	runs, err := store.ListSyncRuns(context.Background(), 10)
 	if err != nil || len(runs) != 1 || runs[0].Status != state.RunStatusFailed || runs[0].Failure != ops.FailureLAPIAuth {
 		t.Fatal("LAPI authentication failure was not recorded with a bounded category")
@@ -619,7 +636,11 @@ func TestPruneCLIPlansWithoutMutationThenAppliesExactCounts(t *testing.T) {
 	if err != nil {
 		t.Fatal("reopen pruned state")
 	}
-	defer readStore.Close()
+	defer func() {
+		if err := readStore.Close(); err != nil {
+			t.Error("read-only store close failed")
+		}
+	}()
 	runs, err := readStore.ListSyncRuns(context.Background(), 10)
 	if err != nil || len(runs) != 0 {
 		t.Fatal("confirmed prune left eligible history")

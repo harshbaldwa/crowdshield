@@ -144,9 +144,6 @@ func supportedEnvironment() map[string]envSetter {
 	setters["CROWDSHIELD_CROWDSEC_MAX_RESPONSE_BYTES"] = int64Setter("CROWDSHIELD_CROWDSEC_MAX_RESPONSE_BYTES", func(c *Config) *int64 { return &c.CrowdSec.MaxResponseBytes })
 	setters["CROWDSHIELD_CROWDSEC_BATCH_SIZE"] = intSetter("CROWDSHIELD_CROWDSEC_BATCH_SIZE", func(c *Config) *int { return &c.CrowdSec.BatchSize })
 	setters["CROWDSHIELD_CROWDSEC_AUTH_REFRESH_BEFORE"] = durationSetter("CROWDSHIELD_CROWDSEC_AUTH_REFRESH_BEFORE", func(c *Config) *Duration { return &c.CrowdSec.AuthRefreshBefore })
-	setters["CROWDSHIELD_CROWDSEC_RETRY_MAX_ATTEMPTS"] = intSetter("CROWDSHIELD_CROWDSEC_RETRY_MAX_ATTEMPTS", func(c *Config) *int { return &c.CrowdSec.Retry.MaxAttempts })
-	setters["CROWDSHIELD_CROWDSEC_RETRY_INITIAL_BACKOFF"] = durationSetter("CROWDSHIELD_CROWDSEC_RETRY_INITIAL_BACKOFF", func(c *Config) *Duration { return &c.CrowdSec.Retry.InitialBackoff })
-	setters["CROWDSHIELD_CROWDSEC_RETRY_MAX_BACKOFF"] = durationSetter("CROWDSHIELD_CROWDSEC_RETRY_MAX_BACKOFF", func(c *Config) *Duration { return &c.CrowdSec.Retry.MaxBackoff })
 
 	setters["CROWDSHIELD_DECISIONS_DURATION"] = durationSetter("CROWDSHIELD_DECISIONS_DURATION", func(c *Config) *Duration { return &c.Decisions.Duration })
 	setters["CROWDSHIELD_DECISIONS_MISSING_GRACE_RUNS"] = intSetter("CROWDSHIELD_DECISIONS_MISSING_GRACE_RUNS", func(c *Config) *int { return &c.Decisions.MissingGraceRuns })

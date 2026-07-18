@@ -2,6 +2,7 @@ package state
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	"crowdshield/internal/notify"
 	"crowdshield/internal/ops"
+	"crowdshield/migrations"
 )
 
 var _ notify.StateStore = (*NotificationStateStore)(nil)
@@ -51,6 +53,80 @@ func TestNotificationStateRoundTripsAndUpsertsOnlyBoundedFields(t *testing.T) {
 	}
 }
 
+func TestNotificationFailureCategoryMigrationPreservesVersionTwoState(t *testing.T) {
+	ctx := context.Background()
+	options := testOptions(t)
+	db, err := sql.Open("sqlite", options.Path)
+	if err != nil {
+		t.Fatal("unable to open version two fixture")
+	}
+	all, err := migrations.All()
+	if err != nil || len(all) != 3 {
+		_ = db.Close()
+		t.Fatal("unexpected embedded migration set")
+	}
+	if err := Migrate(ctx, db, all[:2]); err != nil {
+		_ = db.Close()
+		t.Fatal("unable to construct version two schema")
+	}
+	now := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
+	key := notify.StateKey{Kind: notify.KindRepeatedFailure}
+	legacy := &Store{db: db}
+	if err := legacy.NotificationStates().Save(ctx, notify.PersistentState{
+		Key: key, Failure: ops.FailureRuntime, ConsecutiveFailures: 1, LastAttempt: now, UpdatedAt: now,
+	}); err != nil {
+		_ = db.Close()
+		t.Fatal("unable to persist version two state")
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal("unable to close version two fixture")
+	}
+
+	upgraded, err := Open(ctx, options)
+	if err != nil {
+		t.Fatal("version two schema did not upgrade")
+	}
+	defer func() {
+		if err := upgraded.Close(); err != nil {
+			t.Error("upgraded store close failed")
+		}
+	}()
+	version, err := upgraded.SchemaVersion(ctx)
+	if err != nil || version != 3 {
+		t.Fatal("schema did not reach version three")
+	}
+	loaded, found, err := upgraded.NotificationStates().Load(ctx, key)
+	if err != nil || !found || loaded.Failure != ops.FailureRuntime || loaded.ConsecutiveFailures != 1 {
+		t.Fatal("version two notification state was not preserved")
+	}
+}
+
+func TestNotificationStatePersistsEveryClosedFailureCategory(t *testing.T) {
+	repository := openTestStore(t).NotificationStates()
+	now := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
+	categories := []ops.FailureCategory{
+		ops.FailureConfig, ops.FailureCredential, ops.FailureFeedDownload,
+		ops.FailureFeedValidation, ops.FailureLAPIAuth, ops.FailureLAPI,
+		ops.FailureDatabase, ops.FailureNotification, ops.FailureOwnership,
+		ops.FailureTimeout, ops.FailureCancelled, ops.FailureRuntime, ops.FailureInternal,
+	}
+	for _, category := range categories {
+		t.Run(string(category), func(t *testing.T) {
+			state := notify.PersistentState{
+				Key: notify.StateKey{Kind: notify.KindRepeatedFailure}, Failure: category,
+				ConsecutiveFailures: 1, LastAttempt: now, UpdatedAt: now,
+			}
+			if err := repository.Save(context.Background(), state); err != nil {
+				t.Fatal("closed failure category was not persisted")
+			}
+			loaded, found, err := repository.Load(context.Background(), state.Key)
+			if err != nil || !found || loaded.Failure != category {
+				t.Fatal("closed failure category did not round-trip")
+			}
+		})
+	}
+}
+
 func TestNotificationStatePersistsAcrossStoreReopen(t *testing.T) {
 	options := Options{
 		Path:        filepath.Join(t.TempDir(), "notification-state.db"),
@@ -76,7 +152,11 @@ func TestNotificationStatePersistsAcrossStoreReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal("notification persistence store did not reopen")
 	}
-	defer reopened.Close()
+	defer func() {
+		if err := reopened.Close(); err != nil {
+			t.Error("reopened store close failed")
+		}
+	}()
 	loaded, found, err := reopened.NotificationStates().Load(ctx, state.Key)
 	if err != nil || !found || !loaded.Sent || !loaded.LastAttempt.Equal(now) {
 		t.Fatal("notification state was not durable across reopen")
@@ -170,7 +250,11 @@ func TestNotificationManagerDeduplicationSurvivesSQLiteReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal("notification integration store did not reopen")
 	}
-	defer reopened.Close()
+	defer func() {
+		if err := reopened.Close(); err != nil {
+			t.Error("reopened store close failed")
+		}
+	}()
 	restarted := newManager(reopened)
 	if events := restarted.HandleSync(ctx, failure); len(events) != 0 {
 		t.Fatal("notification was duplicated after SQLite reopen")

@@ -151,7 +151,7 @@ func (s *Store) EnsureFeeds(ctx context.Context, definitions []FeedDefinition, n
 	if err != nil {
 		return nil, stateError(ErrTransaction, err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.ExecContext(ctx, `UPDATE feeds SET enabled=0 WHERE enabled<>0`); err != nil {
 		return nil, stateError(ErrQuery, err)
 	}
@@ -205,7 +205,7 @@ func (s *Store) ListFeeds(ctx context.Context) ([]FeedRecord, error) {
 	if err != nil {
 		return nil, stateError(ErrQuery, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	records := make([]FeedRecord, 0)
 	for rows.Next() {
 		record, err := scanFeed(rows)
@@ -260,7 +260,7 @@ func (s *Store) ApplyFeedSnapshot(ctx context.Context, name string, snapshot Fee
 	if err != nil {
 		return SnapshotResult{}, stateError(ErrTransaction, err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var feedID int64
 	if err := tx.QueryRowContext(ctx, `SELECT id FROM feeds WHERE name=?`, name).Scan(&feedID); err != nil {
 		if err == sql.ErrNoRows {
@@ -278,18 +278,23 @@ func (s *Store) ApplyFeedSnapshot(ctx context.Context, name string, snapshot Fee
 		var raw string
 		var kindValue, active, missing int
 		if err := rows.Scan(&raw, &kindValue, &active, &missing); err != nil {
-			rows.Close()
+			_ = rows.Close() //nolint:sqlclosecheck // explicit early close; the normal path checks Close below.
 			return SnapshotResult{}, stateError(ErrQuery, err)
 		}
 		prefix, err := network.NormalizePrefix(raw)
 		if err != nil {
-			rows.Close()
+			_ = rows.Close() //nolint:sqlclosecheck // explicit early close; the normal path checks Close below.
 			return SnapshotResult{}, stateError(ErrIntegrity, err)
 		}
-		existing[stateEntryKey{prefix: prefix, kind: network.Kind(kindValue)}] = existingEntry{active: active == 1, missingRuns: missing}
+		kind, err := checkedNetworkKind(kindValue)
+		if err != nil {
+			_ = rows.Close() //nolint:sqlclosecheck // explicit early close; the normal path checks Close below.
+			return SnapshotResult{}, err
+		}
+		existing[stateEntryKey{prefix: prefix, kind: kind}] = existingEntry{active: active == 1, missingRuns: missing}
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close()
 		return SnapshotResult{}, stateError(ErrQuery, err)
 	}
 	if err := rows.Close(); err != nil {
@@ -416,10 +421,14 @@ func scanStoredEntry(row scanner) (StoredEntry, error) {
 		return StoredEntry{}, err
 	}
 	prefix, err := network.NormalizePrefix(raw)
-	if err != nil || prefix.Bits() != bits || (family == 4) != prefix.Addr().Is4() || network.ValidateKind(prefix, network.Kind(kindValue)) != nil {
+	if err != nil || prefix.Bits() != bits || (family == 4) != prefix.Addr().Is4() {
 		return StoredEntry{}, stateError(ErrIntegrity, err)
 	}
-	result.Entry = feed.Entry{Prefix: prefix, Kind: network.Kind(kindValue)}
+	kind, err := checkedNetworkKind(kindValue)
+	if err != nil || network.ValidateKind(prefix, kind) != nil {
+		return StoredEntry{}, stateError(ErrIntegrity, err)
+	}
+	result.Entry = feed.Entry{Prefix: prefix, Kind: kind}
 	result.FirstSeen = time.Unix(firstSeen, 0).UTC()
 	result.LastSeen = time.Unix(lastSeen, 0).UTC()
 	result.Active = active == 1
@@ -436,7 +445,7 @@ func queryEntries(ctx context.Context, db *sql.DB, query string, args ...any) ([
 	if err != nil {
 		return nil, stateError(ErrQuery, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var entries []StoredEntry
 	for rows.Next() {
 		entry, err := scanStoredEntry(rows)

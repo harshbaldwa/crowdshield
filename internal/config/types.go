@@ -57,14 +57,13 @@ type DatabaseConfig struct {
 }
 
 type CrowdSecConfig struct {
-	CredentialsFile   string      `yaml:"credentials_file"`
-	AllowedHTTPHosts  []string    `yaml:"allowed_http_hosts"`
-	RequestTimeout    Duration    `yaml:"request_timeout"`
-	ConnectTimeout    Duration    `yaml:"connect_timeout"`
-	MaxResponseBytes  int64       `yaml:"max_response_bytes"`
-	BatchSize         int         `yaml:"batch_size"`
-	AuthRefreshBefore Duration    `yaml:"auth_refresh_before"`
-	Retry             RetryConfig `yaml:"retry"`
+	CredentialsFile   string   `yaml:"credentials_file"`
+	AllowedHTTPHosts  []string `yaml:"allowed_http_hosts"`
+	RequestTimeout    Duration `yaml:"request_timeout"`
+	ConnectTimeout    Duration `yaml:"connect_timeout"`
+	MaxResponseBytes  int64    `yaml:"max_response_bytes"`
+	BatchSize         int      `yaml:"batch_size"`
+	AuthRefreshBefore Duration `yaml:"auth_refresh_before"`
 }
 
 type DecisionsConfig struct {
@@ -174,6 +173,7 @@ func Defaults(version string) Config {
 			HistoryRetention:      Duration(30 * 24 * time.Hour),
 			MaxHistoryEntries:     1000,
 		},
+		// #nosec G101 -- this is a credential file path, not credential material.
 		CrowdSec: CrowdSecConfig{
 			CredentialsFile:   "/run/secrets/crowdshield-lapi-credentials.yaml",
 			RequestTimeout:    Duration(15 * time.Second),
@@ -181,11 +181,6 @@ func Defaults(version string) Config {
 			MaxResponseBytes:  8 << 20,
 			BatchSize:         250,
 			AuthRefreshBefore: Duration(5 * time.Minute),
-			Retry: RetryConfig{
-				MaxAttempts:    3,
-				InitialBackoff: Duration(time.Second),
-				MaxBackoff:     Duration(30 * time.Second),
-			},
 		},
 		Decisions: DecisionsConfig{
 			Duration:         Duration(25 * time.Hour),

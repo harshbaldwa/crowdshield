@@ -93,6 +93,7 @@ func TestResultFromSyncRejectsInvalidReportAndRedactsUnknownError(t *testing.T) 
 	if _, err := ResultFromSync(syncer.Report{FeedsSucceeded: -1}, nil, started, started.Add(time.Second), 0); !errors.Is(err, ErrInvalidSyncReport) {
 		t.Fatal("negative sync report was accepted")
 	}
+	// #nosec G101 -- deliberate non-secret privacy canary.
 	const canary = "https://user:password-canary@example.invalid/198.51.100.23"
 	result, err := ResultFromSync(syncer.Report{}, errors.New(canary), started, started.Add(time.Second), 0)
 	if err != nil || result.Failure != ops.FailureRuntime || result.Validate() != nil {

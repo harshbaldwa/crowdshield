@@ -67,6 +67,7 @@ func TestClientAuthenticateCachesBoundedToken(t *testing.T) {
 			return
 		}
 		logins.Add(1)
+		// #nosec G101 -- deliberate non-secret token fixture.
 		writeJSON(t, writer, http.StatusOK, map[string]any{
 			"code": 200, "expire": now.Add(time.Hour).Format(time.RFC3339), "token": "startup-jwt-canary",
 		})
@@ -230,6 +231,30 @@ func TestClientRetriesOneUnauthorizedAfterRelogin(t *testing.T) {
 	}
 }
 
+func TestClientRejectsRedirectWithoutForwardingPassword(t *testing.T) {
+	now := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
+	var redirected atomic.Int32
+	sink := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		redirected.Add(1)
+		writeJSON(t, writer, http.StatusOK, map[string]any{
+			"expire": now.Add(time.Hour).Format(time.RFC3339), "token": "redirected-token",
+		})
+	}))
+	defer sink.Close()
+	origin := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Location", sink.URL)
+		writer.WriteHeader(http.StatusTemporaryRedirect)
+	}))
+	defer origin.Close()
+	client, err := New(testOptions(t, origin, func() time.Time { return now }))
+	if err != nil {
+		t.Fatal("unable to construct client")
+	}
+	if err := client.Authenticate(context.Background()); err == nil || redirected.Load() != 0 {
+		t.Fatal("LAPI redirect was followed")
+	}
+}
+
 func TestClientBoundsAndSanitizesResponses(t *testing.T) {
 	now := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
 	tests := []struct {
@@ -307,7 +332,8 @@ func TestFindOperationFiltersScenarioHashLocally(t *testing.T) {
 			writeJSON(t, writer, http.StatusOK, map[string]any{"expire": now.Add(time.Hour).Format(time.RFC3339), "token": "token"})
 			return
 		}
-		if request.URL.Query().Get("scenario") != "crowdshield/feed-one" || request.URL.Query().Get("limit") != "100" {
+		if request.URL.Query().Get("scenario") != "crowdshield/feed-one" ||
+			request.URL.Query().Get("since") != "168h" || request.URL.Query().Get("limit") != "101" {
 			t.Error("bounded recovery query missing")
 		}
 		writeJSON(t, writer, http.StatusOK, []Alert{
@@ -326,9 +352,39 @@ func TestFindOperationFiltersScenarioHashLocally(t *testing.T) {
 	}
 }
 
+func TestFindOperationRejectsTruncatedResultSet(t *testing.T) {
+	now := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/v1/watchers/login" {
+			writeJSON(t, writer, http.StatusOK, map[string]any{"expire": now.Add(time.Hour).Format(time.RFC3339), "token": "token"})
+			return
+		}
+		limit, err := strconv.Atoi(request.URL.Query().Get("limit"))
+		if err != nil || limit < 1 || limit > 101 {
+			t.Error("invalid operation lookup limit")
+			return
+		}
+		alerts := make([]Alert, 101)
+		for index := range alerts {
+			alerts[index] = Alert{ID: int64(index + 1), Scenario: "crowdshield/feed-one", ScenarioHash: "crowdshield:other"}
+		}
+		writeJSON(t, writer, http.StatusOK, alerts[:limit])
+	}))
+	defer server.Close()
+	client, err := New(testOptions(t, server, func() time.Time { return now }))
+	if err != nil {
+		t.Fatal("unable to construct client")
+	}
+	_, _, err = client.FindOperation(context.Background(), "feed-one", "0123456789abcdef0123456789abcdef")
+	if err == nil || !IsCategory(err, ErrContract) {
+		t.Fatal("truncated operation lookup was accepted as a complete miss")
+	}
+}
+
 func TestClientFormattingDoesNotExposeTokenOrCredential(t *testing.T) {
 	now := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		// #nosec G101 -- deliberate non-secret token fixture.
 		writeJSON(t, writer, http.StatusOK, map[string]any{"expire": now.Add(time.Hour).Format(time.RFC3339), "token": "jwt-token-canary"})
 	}))
 	defer server.Close()

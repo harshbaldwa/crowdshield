@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -190,6 +191,44 @@ func TestConfigThresholdValidation(t *testing.T) {
 			tc.mutate(&cfg)
 			if err := cfg.Validate(); err == nil {
 				t.Fatal("invalid threshold accepted")
+			}
+		})
+	}
+}
+
+func TestConfigRejectsDownstreamConstructorLimits(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Config)
+	}{
+		{name: "HTTP server timeout", mutate: func(c *Config) { c.Server.ReadTimeout = Duration(10*time.Minute + time.Second) }},
+		{name: "readiness max age", mutate: func(c *Config) { c.Server.ReadinessMaxSyncAge = Duration(30*24*time.Hour + time.Second) }},
+		{name: "LAPI grace exceeds max age", mutate: func(c *Config) {
+			c.Server.LAPIUnreachableGrace = Duration(c.Server.ReadinessMaxSyncAge.Duration() + time.Second)
+		}},
+		{name: "schedule interval", mutate: func(c *Config) { c.Schedule.Interval = Duration(30*24*time.Hour + time.Second) }},
+		{name: "schedule retry backoff", mutate: func(c *Config) { c.Schedule.Retry.MaxBackoff = Duration(24*time.Hour + time.Second) }},
+		{name: "database busy timeout", mutate: func(c *Config) { c.Database.BusyTimeout = Duration(time.Minute + time.Second) }},
+		{name: "history retention minimum", mutate: func(c *Config) { c.Database.HistoryRetention = Duration(time.Hour - time.Second) }},
+		{name: "history retention maximum", mutate: func(c *Config) { c.Database.HistoryRetention = Duration(10*365*24*time.Hour + time.Second) }},
+		{name: "LAPI request timeout", mutate: func(c *Config) { c.CrowdSec.RequestTimeout = Duration(2*time.Minute + time.Second) }},
+		{name: "LAPI connect timeout", mutate: func(c *Config) {
+			c.CrowdSec.RequestTimeout = Duration(2 * time.Minute)
+			c.CrowdSec.ConnectTimeout = Duration(time.Minute + time.Second)
+		}},
+		{name: "LAPI batch size", mutate: func(c *Config) { c.CrowdSec.BatchSize = 501 }},
+		{name: "decision duration", mutate: func(c *Config) { c.Decisions.Duration = Duration(7*24*time.Hour + time.Second) }},
+		{name: "notification request timeout", mutate: func(c *Config) { c.Notifications.RequestTimeout = Duration(2*time.Minute + time.Second) }},
+		{name: "stale sync threshold", mutate: func(c *Config) { c.Notifications.StaleSyncAfter = Duration(30*24*time.Hour + time.Second) }},
+		{name: "global malformed ratio NaN", mutate: func(c *Config) { c.Validation.MaxMalformedRatio = math.NaN() }},
+		{name: "feed malformed ratio NaN", mutate: func(c *Config) { c.Feeds[0].MaxMalformedRatio = math.NaN() }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := Defaults("test")
+			tc.mutate(&cfg)
+			if err := cfg.Validate(); err == nil {
+				t.Fatal("configuration rejected later by production was accepted")
 			}
 		})
 	}

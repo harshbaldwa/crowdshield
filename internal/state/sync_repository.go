@@ -187,7 +187,7 @@ func (s *Store) CompleteSyncRun(ctx context.Context, runID int64, result ops.Res
 	if err != nil {
 		return stateError(ErrTransaction, err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var startedAt int64
 	var currentStatus string
 	if err := tx.QueryRowContext(ctx, `SELECT started_at, status FROM sync_runs WHERE id=?`, runID).Scan(&startedAt, &currentStatus); err != nil {
@@ -285,7 +285,7 @@ FROM sync_runs ORDER BY started_at DESC, id DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, stateError(ErrQuery, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	runs := make([]SyncRunRecord, 0)
 	for rows.Next() {
 		var run SyncRunRecord
@@ -335,18 +335,18 @@ WHERE r.sync_run_id=? ORDER BY f.id`, runs[index].ID)
 			var name, status, failure string
 			var accepted, rejected int64
 			if err := feedRows.Scan(&name, &status, &accepted, &rejected, &failure); err != nil {
-				feedRows.Close()
+				_ = feedRows.Close() //nolint:sqlclosecheck // explicit early close; the normal path checks Close below.
 				return nil, stateError(ErrQuery, err)
 			}
 			feed, err := feedResultFromHistory(name, status, failure, accepted, rejected)
 			if err != nil {
-				feedRows.Close()
+				_ = feedRows.Close()
 				return nil, err
 			}
 			runs[index].Feeds = append(runs[index].Feeds, feed)
 		}
 		if err := feedRows.Err(); err != nil {
-			feedRows.Close()
+			_ = feedRows.Close()
 			return nil, stateError(ErrQuery, err)
 		}
 		if err := feedRows.Close(); err != nil {

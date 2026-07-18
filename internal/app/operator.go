@@ -142,7 +142,7 @@ func syncCLIWithOptions(ctx context.Context, cfg config.Config, request cli.Sync
 		store = &emptyOperatorStore{}
 	} else {
 		store = readStore
-		defer readStore.Close()
+		defer func() { _ = readStore.Close() }()
 	}
 
 	lapiClient, err := lapi.New(lapi.Options{
@@ -209,7 +209,7 @@ func syncCLIEnforceWithOptions(ctx context.Context, cfg config.Config, request c
 	if err != nil {
 		return operatorFailure(startedAt, ops.FailureDatabase, true), nil
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	if _, err := store.RecoverInterruptedSyncRuns(ctx, startedAt); err != nil {
 		return operatorFailure(startedAt, ops.FailureDatabase, true), nil
 	}

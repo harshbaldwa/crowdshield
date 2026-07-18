@@ -155,11 +155,11 @@ The controller sets the alert's machine ID from the JWT identity rather than tru
 
 ## 6. Verified response and ID behavior
 
-Successful `POST /v1/alerts` returns an array of objects with Alert IDs:
+Successful `POST /v1/alerts` returns an array of Alert IDs encoded as strings:
 
 ```json
 [
-  {"id": 123}
+  "123"
 ]
 ```
 
@@ -186,7 +186,7 @@ Implication: create is not complete from Crowdshield's perspective until every r
 
 The v1.7.8 contract exposes no cursor or page number. `limit` is not pagination.
 
-An upstream issue for this version reports problematic origin-filtered queries. Normal operation must therefore use locally recorded exact alert IDs. Recovery may use narrow scenario/time-window queries with hard response/record limits, but a broad origin inventory is not a correctness dependency.
+An upstream issue for this version reports problematic origin-filtered queries. Normal operation must therefore use locally recorded exact alert IDs. Recovery uses the exact scenario namespace over the maximum seven-day decision lifetime, requests 101 records as a truncation sentinel, and processes at most 100. A larger response fails closed; a broad origin inventory is not a correctness dependency.
 
 ## 8. Verified duplicate and refresh behavior
 
@@ -243,7 +243,7 @@ Requested concepts map as follows:
 | Crash-recovery operation token | Alert `scenario_hash` and/or bounded label, subject to mock/real compatibility test |
 | Complete provenance for duplicates | SQLite, because one decision has one scenario |
 
-CrowdSec normalizes known scope names. Crowdshield still sends canonical lower-case scope values and accepts equivalent normalized case when reading.
+CrowdSec normalizes known scope names. Crowdshield sends the v1.7.8 canonical `Ip` and `Range` values and requires the normalized returned scope to equal the locally recorded value.
 
 ## 12. Mock-required behavior
 

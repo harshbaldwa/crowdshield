@@ -72,7 +72,7 @@ func readyTracker(t *testing.T, clock *fakeClock) *Tracker {
 func responseFor(t *testing.T, handler http.Handler, path string) (*httptest.ResponseRecorder, Response) {
 	t.Helper()
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+	handler.ServeHTTP(recorder, httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, nil))
 	var response Response
 	if path == "/readyz" {
 		if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
@@ -212,7 +212,7 @@ func TestReadinessResponsesAreFixedBoundedAndPrivate(t *testing.T) {
 		}
 	}
 	unsupported := httptest.NewRecorder()
-	handler.ServeHTTP(unsupported, httptest.NewRequest(http.MethodPost, "/readyz", nil))
+	handler.ServeHTTP(unsupported, httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/readyz", nil))
 	if unsupported.Code != http.StatusMethodNotAllowed {
 		t.Fatal("readiness endpoint accepted an unsupported method")
 	}

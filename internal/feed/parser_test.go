@@ -10,6 +10,7 @@ import (
 
 func openFixture(t *testing.T, name string) *os.File {
 	t.Helper()
+	// #nosec G304 -- test fixtures are constrained to the repository testdata directory and static test names.
 	file, err := os.Open(filepath.Join("..", "..", "testdata", "feeds", name))
 	if err != nil {
 		t.Fatal("unable to open feed fixture")

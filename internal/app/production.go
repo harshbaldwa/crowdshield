@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log"
 	"net"
 	"time"
 
@@ -213,6 +214,7 @@ func BuildProduction(ctx context.Context, options ProductionOptions) (_ *Runtime
 	}
 	httpRuntime, err := health.NewServer(health.ServerOptions{
 		Handler: handler, Observer: observer,
+		ErrorLog:          log.New(logger.HTTPErrorWriter(context.WithoutCancel(ctx)), "", 0),
 		ReadHeaderTimeout: cfg.Server.ReadHeaderTimeout.Duration(),
 		ReadTimeout:       cfg.Server.ReadTimeout.Duration(), WriteTimeout: cfg.Server.WriteTimeout.Duration(),
 		IdleTimeout: cfg.Server.IdleTimeout.Duration(), ShutdownTimeout: cfg.Server.ShutdownTimeout.Duration(),

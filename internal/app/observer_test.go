@@ -70,6 +70,7 @@ func TestEventFanoutMapsFailuresWithoutAcceptingRawText(t *testing.T) {
 	if !strings.Contains(line, `"error_category":"lapi_auth"`) || !strings.Contains(line, `"success":false`) {
 		t.Fatal("bounded failure was not projected accurately")
 	}
+	// #nosec G101 -- deliberate non-secret privacy canary.
 	const canary = "https://user:password-canary@example.invalid/198.51.100.9"
 	invalid := event
 	invalid.Feed = canary

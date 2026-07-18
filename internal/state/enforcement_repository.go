@@ -74,7 +74,7 @@ func (s *Store) ApplyEnforcementPlan(ctx context.Context, objects []network.Obje
 	if err != nil {
 		return nil, stateError(ErrTransaction, err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.ExecContext(ctx, `UPDATE enforcement_objects SET desired=0, suppression=?, primary_feed_id=NULL, updated_at=?`, string(SuppressionStale), unix(now)); err != nil {
 		return nil, stateError(ErrQuery, err)
 	}
@@ -134,12 +134,12 @@ FROM enforcement_objects ORDER BY family, prefix_bits, prefix`)
 		var family, bits, desired int
 		var primary sql.NullInt64
 		if err := rows.Scan(&record.ID, &raw, &family, &bits, &scope, &desired, &suppression, &primary); err != nil {
-			rows.Close()
+			_ = rows.Close() //nolint:sqlclosecheck // explicit early close; the normal path checks Close below.
 			return nil, stateError(ErrQuery, err)
 		}
 		prefix, err := network.NormalizePrefix(raw)
 		if err != nil || prefix.Bits() != bits || (family == 4) != prefix.Addr().Is4() {
-			rows.Close()
+			_ = rows.Close()
 			return nil, stateError(ErrIntegrity, err)
 		}
 		record.Prefix = prefix
@@ -153,7 +153,7 @@ FROM enforcement_objects ORDER BY family, prefix_bits, prefix`)
 		records = append(records, record)
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close()
 		return nil, stateError(ErrQuery, err)
 	}
 	if err := rows.Close(); err != nil {
@@ -171,17 +171,24 @@ WHERE es.object_id=? ORDER BY f.name, es.source_kind`, records[index].ID)
 			var source network.Contributor
 			var kind int
 			if err := sourceRows.Scan(&source.FeedID, &source.FeedName, &kind); err != nil {
-				sourceRows.Close()
+				_ = sourceRows.Close() //nolint:sqlclosecheck // explicit early close; the normal path checks Close below.
 				return nil, stateError(ErrQuery, err)
 			}
-			source.Kind = network.Kind(kind)
+			kindValue, kindErr := checkedNetworkKind(kind)
+			if kindErr != nil {
+				_ = sourceRows.Close()
+				return nil, kindErr
+			}
+			source.Kind = kindValue
 			records[index].Sources = append(records[index].Sources, source)
 		}
 		if err := sourceRows.Err(); err != nil {
-			sourceRows.Close()
+			_ = sourceRows.Close()
 			return nil, stateError(ErrQuery, err)
 		}
-		sourceRows.Close()
+		if err := sourceRows.Close(); err != nil {
+			return nil, stateError(ErrQuery, err)
+		}
 	}
 	return records, nil
 }
@@ -255,7 +262,7 @@ func (s *Store) BeginOperation(ctx context.Context, operation Operation) error {
 	if err != nil {
 		return stateError(ErrTransaction, err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var feedExists int
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM feeds WHERE id=?`, operation.FeedID).Scan(&feedExists); err != nil || feedExists != 1 {
 		return stateError(ErrConstraint, err)
@@ -307,7 +314,7 @@ WHERE o.status IN ('pending', 'verified', 'ambiguous') ORDER BY o.started_at, o.
 		var durationSeconds, started int64
 		var completed sql.NullInt64
 		if err := rows.Scan(&operation.Token, &operation.Kind, &operation.FeedID, &operation.FeedName, &durationSeconds, &operation.PayloadHash, &operation.Status, &started, &completed); err != nil {
-			rows.Close()
+			_ = rows.Close() //nolint:sqlclosecheck // explicit early close; the normal path checks Close below.
 			return nil, stateError(ErrQuery, err)
 		}
 		operation.Duration = time.Duration(durationSeconds) * time.Second
@@ -319,10 +326,12 @@ WHERE o.status IN ('pending', 'verified', 'ambiguous') ORDER BY o.started_at, o.
 		operations = append(operations, operation)
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close()
 		return nil, stateError(ErrQuery, err)
 	}
-	rows.Close()
+	if err := rows.Close(); err != nil {
+		return nil, stateError(ErrQuery, err)
+	}
 	for index := range operations {
 		itemRows, err := s.db.QueryContext(ctx, `SELECT object_id, old_decision_row_id FROM lapi_operation_items WHERE operation_token=? ORDER BY object_id`, operations[index].Token)
 		if err != nil {
@@ -332,7 +341,7 @@ WHERE o.status IN ('pending', 'verified', 'ambiguous') ORDER BY o.started_at, o.
 			var item OperationItem
 			var old sql.NullInt64
 			if err := itemRows.Scan(&item.ObjectID, &old); err != nil {
-				itemRows.Close()
+				_ = itemRows.Close() //nolint:sqlclosecheck // explicit early close; the normal path checks Close below.
 				return nil, stateError(ErrQuery, err)
 			}
 			if old.Valid {
@@ -342,10 +351,12 @@ WHERE o.status IN ('pending', 'verified', 'ambiguous') ORDER BY o.started_at, o.
 			operations[index].Items = append(operations[index].Items, item)
 		}
 		if err := itemRows.Err(); err != nil {
-			itemRows.Close()
+			_ = itemRows.Close() //nolint:sqlclosecheck // explicit early close; the normal path checks Close below.
 			return nil, stateError(ErrQuery, err)
 		}
-		itemRows.Close()
+		if err := itemRows.Close(); err != nil {
+			return nil, stateError(ErrQuery, err)
+		}
 	}
 	return operations, nil
 }
@@ -414,7 +425,7 @@ WHERE a.operation_token=? ORDER BY d.object_id`, token)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var records []DecisionRecord
 	for rows.Next() {
 		record, err := scanDecision(rows)
@@ -437,7 +448,7 @@ func (s *Store) RecordVerifiedOperation(ctx context.Context, token string, alert
 	if err != nil {
 		return nil, stateError(ErrTransaction, err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var kind OperationKind
 	var feedName string
 	var durationSeconds int64
@@ -485,12 +496,12 @@ WHERE i.operation_token=? ORDER BY i.object_id`, token)
 		var old sql.NullInt64
 		var raw, scope string
 		if err := itemRows.Scan(&objectID, &old, &raw, &scope); err != nil {
-			itemRows.Close()
+			_ = itemRows.Close() //nolint:sqlclosecheck // explicit early close; the normal path checks Close below.
 			return nil, stateError(ErrQuery, err)
 		}
 		prefix, err := network.NormalizePrefix(raw)
 		if err != nil {
-			itemRows.Close()
+			_ = itemRows.Close() //nolint:sqlclosecheck // explicit early close; the normal path checks Close below.
 			return nil, stateError(ErrIntegrity, err)
 		}
 		item := expectedItem{prefix: prefix, scope: network.Scope(scope)}
@@ -501,10 +512,12 @@ WHERE i.operation_token=? ORDER BY i.object_id`, token)
 		expected[objectID] = item
 	}
 	if err := itemRows.Err(); err != nil {
-		itemRows.Close()
+		_ = itemRows.Close()
 		return nil, stateError(ErrQuery, err)
 	}
-	itemRows.Close()
+	if err := itemRows.Close(); err != nil {
+		return nil, stateError(ErrQuery, err)
+	}
 	if len(expected) != len(alert.Decisions) {
 		return nil, stateError(ErrConstraint, nil)
 	}
@@ -658,7 +671,7 @@ func (s *Store) ListActiveDecisions(ctx context.Context) ([]DecisionRecord, erro
 	if err != nil {
 		return nil, stateError(ErrQuery, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var records []DecisionRecord
 	for rows.Next() {
 		record, err := scanDecision(rows)
@@ -681,7 +694,7 @@ func (s *Store) ListLiveDecisions(ctx context.Context) ([]DecisionRecord, error)
 	if err != nil {
 		return nil, stateError(ErrQuery, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var records []DecisionRecord
 	for rows.Next() {
 		record, err := scanDecision(rows)

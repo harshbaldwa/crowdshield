@@ -50,7 +50,7 @@ func Migrate(ctx context.Context, db *sql.DB, items []migrations.Migration) erro
 	if err != nil {
 		return stateError(ErrMigration, err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.ExecContext(ctx, migrationTableSQL); err != nil {
 		return stateError(ErrMigration, err)
 	}
@@ -63,13 +63,13 @@ func Migrate(ctx context.Context, db *sql.DB, items []migrations.Migration) erro
 		var version int
 		var checksum string
 		if err := rows.Scan(&version, &checksum); err != nil {
-			rows.Close()
+			_ = rows.Close() //nolint:sqlclosecheck // explicit early close; the normal path checks Close below.
 			return stateError(ErrMigration, err)
 		}
 		applied[version] = checksum
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close()
 		return stateError(ErrMigration, err)
 	}
 	if err := rows.Close(); err != nil {

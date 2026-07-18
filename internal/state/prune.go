@@ -137,7 +137,7 @@ func (s *Store) PruneHistory(ctx context.Context, now time.Time, retention time.
 	if err != nil {
 		return PruneResult{}, stateError(ErrTransaction, err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var result PruneResult
 	result.SyncRuns, err = pruneExec(ctx, tx, `
 DELETE FROM sync_runs

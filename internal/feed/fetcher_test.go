@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +27,39 @@ func response(status int, contentType, body string) *http.Response {
 
 func testFetcher(do roundTripFunc) *Fetcher {
 	return &Fetcher{client: &http.Client{Transport: do}, userAgent: "crowdshield/test"}
+}
+
+type staticResolver struct {
+	addresses []netip.Addr
+}
+
+func (r staticResolver) LookupNetIP(context.Context, string, string) ([]netip.Addr, error) {
+	return append([]netip.Addr(nil), r.addresses...), nil
+}
+
+func TestSecureDialerRejectsEveryNonPublicDNSAnswerBeforeDialing(t *testing.T) {
+	tests := []struct {
+		name      string
+		addresses []netip.Addr
+	}{
+		{name: "carrier grade NAT", addresses: []netip.Addr{netip.MustParseAddr("100.64.0.1")}},
+		{name: "documentation", addresses: []netip.Addr{netip.MustParseAddr("192.0.2.1")}},
+		{name: "IPv6 documentation", addresses: []netip.Addr{netip.MustParseAddr("2001:db8::1")}},
+		{name: "mixed public and loopback", addresses: []netip.Addr{
+			netip.MustParseAddr("8.8.8.8"), netip.MustParseAddr("127.0.0.1"),
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dialer := secureDialer{
+				resolver: staticResolver{addresses: tc.addresses}, dnsTimeout: time.Second,
+				dialer: net.Dialer{Timeout: time.Millisecond},
+			}
+			if _, err := dialer.DialContext(context.Background(), "tcp", "feed.example.invalid:443"); !errors.Is(err, errSSRFBlocked) {
+				t.Fatal("non-public DNS result reached the network dialer")
+			}
+		})
+	}
 }
 
 func validFetchRequest() FetchRequest {
@@ -131,6 +166,7 @@ func TestFetchClassifiesStatusAndRetryAfter(t *testing.T) {
 }
 
 func TestFetchErrorDoesNotEchoRawTransportError(t *testing.T) {
+	// #nosec G101 -- deliberate non-secret privacy canary.
 	const canary = "https://user:credential-canary@feed.example.invalid/private"
 	fetcher := testFetcher(func(*http.Request) (*http.Response, error) {
 		return nil, errors.New(canary)
@@ -165,12 +201,12 @@ func TestProductionFetcherRejectsLoopbackDial(t *testing.T) {
 
 func TestRedirectPolicyRejectsDowngradeAndExcess(t *testing.T) {
 	policy := redirectPolicy(1, true)
-	original, _ := http.NewRequest(http.MethodGet, "https://feed.example.invalid/list", nil)
-	downgrade, _ := http.NewRequest(http.MethodGet, "http://feed.example.invalid/list", nil)
+	original, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://feed.example.invalid/list", nil)
+	downgrade, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://feed.example.invalid/list", nil)
 	if err := policy(downgrade, []*http.Request{original}); err == nil {
 		t.Fatal("HTTPS downgrade accepted")
 	}
-	next, _ := http.NewRequest(http.MethodGet, "https://other.example.invalid/list", nil)
+	next, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://other.example.invalid/list", nil)
 	if err := policy(next, []*http.Request{original, next}); err == nil {
 		t.Fatal("redirect limit not enforced")
 	}

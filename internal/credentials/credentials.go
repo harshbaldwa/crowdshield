@@ -122,11 +122,12 @@ func (l Loader) Load(path string) (*Credentials, error) {
 		return nil, credentialError(ErrSize, nil)
 	}
 
+	// #nosec G304 -- the path is operator-selected, lstat-checked, same-file checked, permission-checked, and size-bounded.
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, credentialError(ErrMissing, err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	after, err := file.Stat()
 	if err != nil || !after.Mode().IsRegular() || !os.SameFile(before, after) {
 		return nil, credentialError(ErrFileType, err)

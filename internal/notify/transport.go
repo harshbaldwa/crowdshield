@@ -105,7 +105,7 @@ func (t *HTTPTransport) Send(ctx context.Context, notice Notice) error {
 	if err != nil {
 		return ErrTransport
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxResponseBytes+1))
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		return ErrResponse

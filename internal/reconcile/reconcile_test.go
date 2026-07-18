@@ -277,29 +277,53 @@ func TestPendingOperationRecoversWithoutDuplicatePost(t *testing.T) {
 	}
 }
 
-func TestOwnershipDriftBlocksDeletion(t *testing.T) {
-	h := newHarness(t)
-	h.snapshot(t, "feed-one", []feed.Entry{entry("8.8.8.0/24", network.KindRange)})
-	reconciler := h.reconciler(t, 100)
-	if _, err := reconciler.Run(context.Background(), RunOptions{FeedOrder: feedOrder(h)}); err != nil {
-		t.Fatal("initial reconcile failed")
+func TestEveryOwnershipPredicateDriftBlocksDeletion(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*lapi.Alert)
+	}{
+		{name: "machine", mutate: func(alert *lapi.Alert) { alert.MachineID = "foreign-machine" }},
+		{name: "alert scenario", mutate: func(alert *lapi.Alert) { alert.Scenario = "foreign/scenario" }},
+		{name: "origin", mutate: func(alert *lapi.Alert) { alert.Decisions[0].Origin = "foreign" }},
+		{name: "type", mutate: func(alert *lapi.Alert) { alert.Decisions[0].Type = "captcha" }},
+		{name: "decision scenario", mutate: func(alert *lapi.Alert) { alert.Decisions[0].Scenario = "foreign/scenario" }},
+		{name: "scope", mutate: func(alert *lapi.Alert) { alert.Decisions[0].Scope = "Ip" }},
+		{name: "value", mutate: func(alert *lapi.Alert) { alert.Decisions[0].Value = "9.9.9.0/24" }},
+		{name: "duplicate decision ID", mutate: func(alert *lapi.Alert) {
+			alert.Decisions = append(alert.Decisions, alert.Decisions[0])
+		}},
+		{name: "missing expiry", mutate: func(alert *lapi.Alert) { alert.Decisions[0].Until = "" }},
+		{name: "malformed expiry", mutate: func(alert *lapi.Alert) { alert.Decisions[0].Until = "not-a-time" }},
 	}
-	owned, _ := h.store.ListActiveDecisions(context.Background())
-	alert, err := h.client.GetAlert(context.Background(), owned[0].AlertID)
-	if err != nil {
-		t.Fatal("unable to read seeded alert")
-	}
-	alert.MachineID = "foreign-machine"
-	h.server.AddForeignAlert(alert)
-	_, err = reconciler.Run(context.Background(), RunOptions{
-		FeedOrder: feedOrder(h), Allowlists: []netip.Prefix{netip.MustParsePrefix("8.8.8.8/32")},
-	})
-	if err == nil || !IsCategory(err, ErrOwnership) || h.server.WasExpired(owned[0].DecisionID) {
-		t.Fatal("ownership drift did not block deletion")
-	}
-	active, _ := h.store.ListActiveDecisions(context.Background())
-	if len(active) != 1 {
-		t.Fatal("ownership mismatch changed local active state")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.snapshot(t, "feed-one", []feed.Entry{entry("8.8.8.0/24", network.KindRange)})
+			reconciler := h.reconciler(t, 100)
+			if _, err := reconciler.Run(context.Background(), RunOptions{FeedOrder: feedOrder(h)}); err != nil {
+				t.Fatal("initial reconcile failed")
+			}
+			owned, err := h.store.ListActiveDecisions(context.Background())
+			if err != nil || len(owned) != 1 {
+				t.Fatal("owned decision missing")
+			}
+			alert, err := h.client.GetAlert(context.Background(), owned[0].AlertID)
+			if err != nil {
+				t.Fatal("unable to read seeded alert")
+			}
+			tc.mutate(&alert)
+			h.server.AddForeignAlert(alert)
+			_, err = reconciler.Run(context.Background(), RunOptions{
+				FeedOrder: feedOrder(h), Allowlists: []netip.Prefix{netip.MustParsePrefix("8.8.8.8/32")},
+			})
+			if err == nil || !IsCategory(err, ErrOwnership) || h.server.WasExpired(owned[0].DecisionID) {
+				t.Fatal("ownership drift did not block deletion")
+			}
+			active, stateErr := h.store.ListActiveDecisions(context.Background())
+			if stateErr != nil || len(active) != 1 {
+				t.Fatal("ownership mismatch changed local active state")
+			}
+		})
 	}
 }
 
