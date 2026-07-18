@@ -1,0 +1,6 @@
+# FireHOL fixture; synthetic and documentation-only test inputs
+
+8.8.4.0/24
+9.9.9.9
+11.22.0.0/16 # inline attribution comment
+; semicolon comment

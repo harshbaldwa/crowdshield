@@ -1,0 +1,37 @@
+# Build outputs
+/crowdshield
+/bin/
+/dist/
+*.out
+coverage*.html
+coverage*.txt
+
+# Local state
+/data/*
+!/data/.gitkeep
+*.db
+*.db-shm
+*.db-wal
+
+# Credentials and local configuration
+/secrets/*
+!/secrets/.gitkeep
+.env
+/config/crowdshield.yaml
+
+# Project-local toolchains and caches
+/.tools/
+/.cache/
+/.gocache/
+/.gomodcache/
+/.gopath/
+/.gotmp/
+/.tmp/
+/.xdg/
+/.golangci-cache/
+
+# Editor and OS files
+.vscode/
+.idea/
+*.swp
+.DS_Store
