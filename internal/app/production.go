@@ -233,7 +233,9 @@ func BuildProduction(ctx context.Context, options ProductionOptions) (_ *Runtime
 		Notifications: notificationManager, Scheduler: runScheduler, HTTP: httpRuntime,
 		Listener: listener, Observer: observer, IdleClosers: idleClosers,
 		Credentials: credentialSet, Now: options.Now,
-		HistoryRetention: cfg.Database.HistoryRetention.Duration(), PruneInterval: 24 * time.Hour,
+		HistoryRetention:  cfg.Database.HistoryRetention.Duration(),
+		MaxHistoryEntries: cfg.Database.MaxHistoryEntries,
+		PruneInterval:     24 * time.Hour,
 	})
 	if err != nil {
 		return nil, ErrProductionBuild

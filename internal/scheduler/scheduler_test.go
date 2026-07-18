@@ -445,6 +445,10 @@ func TestTransientFailureRetriesRecoversResetsBackoffAndKeepsCadence(t *testing.
 	if got := <-calls; got != 5 {
 		t.Fatal("post-reset recovery attempt did not run")
 	}
+	waitTimerCreated(t, clock)
+	if got := clock.Created(); len(got) != 5 || got[4] != 59*time.Minute {
+		t.Fatal("post-recovery schedule did not remain anchored")
+	}
 
 	var retries, recoveries int
 	drain := true

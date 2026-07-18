@@ -1,25 +1,51 @@
 package main
 
 import (
-	"fmt"
+	"context"
 	"io"
 	"os"
+	"os/signal"
+	"syscall"
 
+	"crowdshield/internal/app"
 	"crowdshield/internal/buildinfo"
+	"crowdshield/internal/cli"
+	"crowdshield/internal/config"
 )
 
-const usage = "usage: crowdshield <run|sync|status|validate-config|list-feeds|explain|prune|version> [options]"
-
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	ctx, stop := signalContext(context.Background())
+	defer stop()
+	os.Exit(runContext(ctx, os.Args[1:], os.Stdout, os.Stderr))
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 1 && args[0] == "version" {
-		_, _ = fmt.Fprintln(stdout, buildinfo.Current().String())
-		return 0
-	}
+	return runContext(context.Background(), args, stdout, stderr)
+}
 
-	_, _ = fmt.Fprintln(stderr, usage)
-	return 2
+func runContext(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	return cli.Execute(ctx, args, stdout, stderr, productionOptions())
+}
+
+func signalContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
+}
+
+func productionOptions() cli.Options {
+	version := buildinfo.Current()
+	loader := config.DefaultLoader(version.Version)
+	return cli.Options{
+		Version:    version,
+		LoadConfig: loader.Load,
+		Actions: cli.Actions{
+			ValidateConfig: app.ValidateCLIConfig,
+			Run:            app.RunCLI,
+			Sync:           app.SyncCLI,
+			Status:         app.StatusCLI,
+			ListFeeds:      app.ListFeedsCLI,
+			Explain:        app.ExplainCLI,
+			Prune:          app.PruneCLI,
+			DBCheck:        app.DBCheckCLI,
+		},
+	}
 }

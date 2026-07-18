@@ -21,7 +21,7 @@ var (
 type RuntimeState interface {
 	RecoverInterruptedSyncRuns(context.Context, time.Time) (int64, error)
 	RuntimeTimestamp(context.Context, state.RuntimeTimestampKey) (time.Time, bool, error)
-	PruneHistory(context.Context, time.Time, time.Duration) (state.PruneResult, error)
+	PruneHistory(context.Context, time.Time, time.Duration, int) (state.PruneResult, error)
 	ListActiveDecisions(context.Context) ([]state.DecisionRecord, error)
 	Close() error
 }
@@ -80,26 +80,28 @@ type RuntimeOptions struct {
 	Credentials   CredentialDestroyer
 	Now           func() time.Time
 
-	HistoryRetention time.Duration
-	PruneInterval    time.Duration
+	HistoryRetention  time.Duration
+	MaxHistoryEntries int
+	PruneInterval     time.Duration
 }
 
 type Runtime struct {
-	state            RuntimeState
-	authenticator    Authenticator
-	health           RuntimeHealth
-	metrics          RuntimeMetrics
-	notifications    RuntimeNotifications
-	scheduler        SchedulerRunner
-	http             HTTPRuntime
-	listener         net.Listener
-	observer         EventObserver
-	idleClosers      []IdleCloser
-	credentials      CredentialDestroyer
-	now              func() time.Time
-	historyRetention time.Duration
-	pruneInterval    time.Duration
-	run              atomic.Bool
+	state             RuntimeState
+	authenticator     Authenticator
+	health            RuntimeHealth
+	metrics           RuntimeMetrics
+	notifications     RuntimeNotifications
+	scheduler         SchedulerRunner
+	http              HTTPRuntime
+	listener          net.Listener
+	observer          EventObserver
+	idleClosers       []IdleCloser
+	credentials       CredentialDestroyer
+	now               func() time.Time
+	historyRetention  time.Duration
+	maxHistoryEntries int
+	pruneInterval     time.Duration
+	run               atomic.Bool
 }
 
 func NewRuntime(options RuntimeOptions) (*Runtime, error) {
@@ -110,6 +112,7 @@ func NewRuntime(options RuntimeOptions) (*Runtime, error) {
 		return nil, ErrInvalidRuntimeOptions
 	}
 	if options.HistoryRetention < time.Hour || options.HistoryRetention > 10*365*24*time.Hour ||
+		options.MaxHistoryEntries < 1 || options.MaxHistoryEntries > 1_000_000 ||
 		options.PruneInterval < time.Hour || options.PruneInterval > 30*24*time.Hour {
 		return nil, ErrInvalidRuntimeOptions
 	}
@@ -124,7 +127,8 @@ func NewRuntime(options RuntimeOptions) (*Runtime, error) {
 		scheduler: options.Scheduler, http: options.HTTP, listener: options.Listener,
 		observer: options.Observer, idleClosers: append([]IdleCloser(nil), options.IdleClosers...),
 		credentials: options.Credentials, now: options.Now,
-		historyRetention: options.HistoryRetention, pruneInterval: options.PruneInterval,
+		historyRetention: options.HistoryRetention, maxHistoryEntries: options.MaxHistoryEntries,
+		pruneInterval: options.PruneInterval,
 	}, nil
 }
 
@@ -206,7 +210,7 @@ func (r *Runtime) bootstrap(ctx context.Context) error {
 		return ErrRuntimeStartup
 	}
 	if !prunedBefore || (!now.Before(lastPrune) && now.Sub(lastPrune) >= r.pruneInterval) {
-		pruned, pruneErr := r.state.PruneHistory(ctx, now, r.historyRetention)
+		pruned, pruneErr := r.state.PruneHistory(ctx, now, r.historyRetention, r.maxHistoryEntries)
 		removed, valid := pruneRemoved(pruned)
 		if pruneErr != nil || !valid {
 			r.health.MarkDatabase(false)

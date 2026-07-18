@@ -48,7 +48,8 @@ func TestPruneOwnershipConflictUsesExitFour(t *testing.T) {
 		}},
 	}
 	var stdout, stderr bytes.Buffer
-	if code := Execute(context.Background(), []string{"prune"}, &stdout, &stderr, options); code != ExitOwnership || !strings.Contains(stdout.String(), "ownership_conflicts=1") {
+	if code := Execute(context.Background(), []string{"prune"}, &stdout, &stderr, options); code != ExitOwnership ||
+		!strings.Contains(stdout.String(), "mode=blocked") || !strings.Contains(stdout.String(), "ownership_conflicts=1") {
 		t.Fatal("prune ownership conflict did not fail closed")
 	}
 }

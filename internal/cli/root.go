@@ -24,13 +24,14 @@ const Usage = "usage: crowdshield <run|sync|status|validate-config|list-feeds|ex
 type ConfigLoader func(string) (config.Config, error)
 
 type Actions struct {
-	Run       func(context.Context, config.Config, bool, io.Writer) error
-	Status    func(context.Context, config.Config) (Status, error)
-	Sync      func(context.Context, config.Config, SyncRequest) (ops.Result, error)
-	ListFeeds func(context.Context, config.Config) ([]FeedStatus, error)
-	Explain   func(context.Context, config.Config, string) (ExplainResult, error)
-	Prune     func(context.Context, config.Config, bool) (PruneResult, error)
-	DBCheck   func(context.Context, config.Config) error
+	ValidateConfig func(context.Context, config.Config) error
+	Run            func(context.Context, config.Config, bool, io.Writer) error
+	Status         func(context.Context, config.Config) (Status, error)
+	Sync           func(context.Context, config.Config, SyncRequest) (ops.Result, error)
+	ListFeeds      func(context.Context, config.Config) ([]FeedStatus, error)
+	Explain        func(context.Context, config.Config, string) (ExplainResult, error)
+	Prune          func(context.Context, config.Config, bool) (PruneResult, error)
+	DBCheck        func(context.Context, config.Config) error
 }
 
 type Options struct {
@@ -49,7 +50,7 @@ func commandFlags(name string) *flag.FlagSet {
 	return set
 }
 
-func validateConfig(args []string, stdout, stderr io.Writer, options Options) int {
+func validateConfig(ctx context.Context, args []string, stdout, stderr io.Writer, options Options) int {
 	flags := commandFlags("validate-config")
 	path := flags.String("config", config.DefaultPath, "configuration file")
 	if flags.Parse(args) != nil || flags.NArg() != 0 || options.LoadConfig == nil {
@@ -58,6 +59,10 @@ func validateConfig(args []string, stdout, stderr io.Writer, options Options) in
 	}
 	loaded, err := options.LoadConfig(*path)
 	if err != nil || loaded.Validate() != nil {
+		_, _ = fmt.Fprintln(stderr, "configuration invalid")
+		return ExitUsage
+	}
+	if options.Actions.ValidateConfig != nil && options.Actions.ValidateConfig(ctx, loaded) != nil {
 		_, _ = fmt.Fprintln(stderr, "configuration invalid")
 		return ExitUsage
 	}
@@ -109,7 +114,7 @@ func Execute(ctx context.Context, args []string, stdout, stderr io.Writer, optio
 		_, _ = fmt.Fprintln(stdout, options.Version.String())
 		return ExitSuccess
 	case "validate-config":
-		return validateConfig(args[1:], stdout, stderr, options)
+		return validateConfig(ctx, args[1:], stdout, stderr, options)
 	case "run":
 		return runCommand(ctx, args[1:], stdout, stderr, options)
 	case "status":

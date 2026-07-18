@@ -49,6 +49,7 @@ type fakeRuntimeState struct {
 	closeErr     error
 	pruneAt      time.Time
 	retention    time.Duration
+	maxEntries   int
 }
 
 func (s *fakeRuntimeState) RecoverInterruptedSyncRuns(context.Context, time.Time) (int64, error) {
@@ -76,10 +77,11 @@ func (s *fakeRuntimeState) RuntimeTimestamp(_ context.Context, key state.Runtime
 	}
 }
 
-func (s *fakeRuntimeState) PruneHistory(_ context.Context, now time.Time, retention time.Duration) (state.PruneResult, error) {
+func (s *fakeRuntimeState) PruneHistory(_ context.Context, now time.Time, retention time.Duration, maxEntries int) (state.PruneResult, error) {
 	s.actions.add("prune")
 	s.pruneAt = now
 	s.retention = retention
+	s.maxEntries = maxEntries
 	return state.PruneResult{SyncRuns: 2, FeedEntries: 3}, nil
 }
 
@@ -233,7 +235,7 @@ func TestRuntimeCancellationUsesOrderedShutdown(t *testing.T) {
 		HTTP: httpRuntime, Listener: listener, Observer: &runtimeObserver{actions: actions},
 		IdleClosers: []IdleCloser{&fakeIdleCloser{actions: actions}},
 		Credentials: &fakeCredentialDestroyer{actions: actions}, Now: func() time.Time { return now },
-		HistoryRetention: 30 * 24 * time.Hour, PruneInterval: 24 * time.Hour,
+		HistoryRetention: 30 * 24 * time.Hour, MaxHistoryEntries: 1000, PruneInterval: 24 * time.Hour,
 	})
 	if err != nil {
 		t.Fatal("create runtime")
@@ -285,7 +287,7 @@ func TestRuntimeStateRestoreFailureMarksDatabaseUnavailableAndCleansUp(t *testin
 		Listener:      listener, Observer: &runtimeObserver{actions: actions},
 		IdleClosers: []IdleCloser{&fakeIdleCloser{actions: actions}},
 		Credentials: &fakeCredentialDestroyer{actions: actions}, Now: func() time.Time { return now },
-		HistoryRetention: 30 * 24 * time.Hour, PruneInterval: 24 * time.Hour,
+		HistoryRetention: 30 * 24 * time.Hour, MaxHistoryEntries: 1000, PruneInterval: 24 * time.Hour,
 	})
 	if err != nil {
 		t.Fatal("create runtime")
@@ -332,7 +334,7 @@ func TestRuntimePrunesDueHistoryBeforeAuthentication(t *testing.T) {
 		Observer:      &runtimeObserver{actions: actions},
 		IdleClosers:   []IdleCloser{&fakeIdleCloser{actions: actions}},
 		Credentials:   &fakeCredentialDestroyer{actions: actions}, Now: func() time.Time { return now },
-		HistoryRetention: retention, PruneInterval: 24 * time.Hour,
+		HistoryRetention: retention, MaxHistoryEntries: 321, PruneInterval: 24 * time.Hour,
 	})
 	if err != nil {
 		t.Fatal("create runtime")
@@ -340,7 +342,7 @@ func TestRuntimePrunesDueHistoryBeforeAuthentication(t *testing.T) {
 	if err := runtime.Run(context.Background()); err != ErrRuntimeStartup {
 		t.Fatal("expected fixed startup failure after injected auth failure")
 	}
-	if !stateStore.pruneAt.Equal(now) || stateStore.retention != retention {
+	if !stateStore.pruneAt.Equal(now) || stateStore.retention != retention || stateStore.maxEntries != 321 {
 		t.Fatal("runtime did not pass bounded retention settings to pruning")
 	}
 	values := actions.snapshot()

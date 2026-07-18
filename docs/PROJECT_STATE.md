@@ -1,22 +1,36 @@
 # Crowdshield Project State
 
-Canonical state timestamp: 2026-07-17T23:36:45-05:00
+Canonical state timestamp: 2026-07-18T01:17:32-05:00
 
 ## Project identity and boundary
 
 - Project/module/binary/container: `crowdshield`
 - License: MIT
 - Repository: `/home/vicky/homelab/containers/crowdshield`
-- Git: initialized locally on branch `main`; no commits
+- Git: branch `main` at `cf5949c0f51855224af5bdbb1f360044750bb527` (`first commit`); local HEAD, `origin/main`, and the read-only live GitHub `main` head match with zero ahead/behind; the working tree was clean at session reconstruction
 - Allowed writes: this repository only
 - Production deployment and production-service changes: prohibited
 - Real CrowdSec decision writes: prohibited without explicit user approval
 
 A pre-existing development credential remains at `secrets/lapi-credentials.yaml`. It is ignored by Git and was never printed or copied.
 
+## Repository reconstruction checkpoint
+
+Observed from the live repository at `2026-07-18T00:10:13-05:00` before new implementation work:
+
+- `git status --short --branch` reported only `## main...origin/main`; there were no staged, unstaged, or nonignored untracked paths.
+- `git log --oneline --decorate -n 10` reported the single commit `cf5949c (HEAD -> main, origin/main) first commit`.
+- `git remote -v` reported `https://github.com/harshbaldwa/crowdshield.git` for fetch and push. A read-only `git ls-remote --heads origin` reported the same full commit for `refs/heads/main`.
+- `git diff --stat`, `git diff --check`, `git diff --name-status`, and `git diff --cached --name-status` produced no findings. The live working tree is identical to the checked-in snapshot; nothing is implemented locally but uncommitted at this checkpoint.
+- `git ls-files -ci --exclude-standard` found no tracked ignored files. The tracked artifact-pattern audit found only the intentional `secrets/.gitkeep`; the real development credential remains ignored by `/secrets/*`. Project-local Go toolchains and caches exist only under ignored repository paths.
+- The committed tree contains no SQLite database, `.env`, local `config/crowdshield.yaml`, credential, generated binary, coverage output, or other build output.
+- The verified ignored project-local Go 1.26.5 toolchain listed 20 packages: `crowdshield/cmd/crowdshield`, `crowdshield/internal/app`, `crowdshield/internal/buildinfo`, `crowdshield/internal/cli`, `crowdshield/internal/config`, `crowdshield/internal/credentials`, `crowdshield/internal/feed`, `crowdshield/internal/health`, `crowdshield/internal/lapi`, `crowdshield/internal/lapi/mock`, `crowdshield/internal/logsafe`, `crowdshield/internal/metrics`, `crowdshield/internal/network`, `crowdshield/internal/notify`, `crowdshield/internal/ops`, `crowdshield/internal/reconcile`, `crowdshield/internal/scheduler`, `crowdshield/internal/state`, `crowdshield/internal/syncer`, and `crowdshield/migrations`.
+- The commit already contains runtime and CLI implementation files and tests. Their presence supersedes older statements that CLI implementation had not begun, but completeness remains unclaimed until the live code and required gates are inspected and run.
+- This is an interim reconstruction checkpoint. No test, race, vet, module, privacy, or leak gate has been rerun yet in this session.
+
 ## Current milestone
 
-Phases 1, 2, 3a, and 3b are complete. Phase 3c (runtime orchestration and operator interfaces) is active.
+Phases 1, 2, 3a, 3b, and 3c are complete. Phase 4 (bounded testing and hardening) is next; no deployment or real LAPI write has been authorized.
 
 Detailed evidence and design baseline:
 
@@ -30,7 +44,7 @@ Detailed evidence and design baseline:
 
 - Created the project directory structure.
 - Added a secret/state/tool-cache-safe `.gitignore`.
-- Initialized a local Git repository without committing.
+- Initialized the Git repository and created the externally visible checkpoint commit `cf5949c` (`first commit`) on `main`; this checkpoint does not imply release or deployment readiness.
 - Inspected host, Docker, CrowdSec, LAPI, and `monitor` read-only.
 - Verified CrowdSec v1.7.8 machine authentication with the existing development credential.
 - Verified an empty, read-only, machine-authenticated alert query.
@@ -74,6 +88,14 @@ Detailed evidence and design baseline:
 - At the 2026-07-17T22:58:59-05:00 interim Phase 3c checkpoint, `go test -count=1 ./...` passed across all 19 current packages.
 - At the 2026-07-17T23:36:45-05:00 runtime checkpoint, normal tests passed for `internal/app`, `internal/config`, `internal/lapi`, and `internal/notify`; `internal/app` passed race testing in 1.082s.
 - Through this runtime checkpoint, made no deployment, real CrowdSec write, Git commit, image publication, registry push, container/network change, or production-service/configuration modification.
+- Replaced the executable's divergent command switch with the shared `internal/cli` dispatcher and production options. `main` now translates SIGINT/SIGTERM into context cancellation.
+- Added production operator adapters for strict credential-aware configuration validation; daemon runtime; enforcing and dry-run one-shot synchronization; read-only status/feed/explanation queries; read-only database verification; and plan-by-default, exact-confirmation pruning.
+- Dry-run synchronization authenticates to no LAPI endpoint, opens valid state immutably, falls back to an empty baseline only when state is absent, and never creates or mutates the database. Enforcing synchronization recovers interrupted runs, authenticates before feed fetch, records one bounded history result, preserves exact ownership behavior, and cleans up all clients/state.
+- Read-only commands do not create or migrate state. `explain` canonicalizes only the operator's explicit argument, merges configured policy with persisted intent/ownership, and reports ambiguous ownership through exit 4 without logging the indicator.
+- Added read-only, cascade-aware prune planning whose counts match applied deletion. Confirmed pruning is blocked while ambiguous operations exist and reports `mode=blocked`; active/referenced state remains protected.
+- Enforced `database.max_history_entries` in both runtime and operator pruning, in addition to age retention, while preserving running sync rows. `go mod tidy` promoted the directly imported SQLite module and added its missing transitive checksums.
+- Fixed two instrumentation-sensitive test synchronization gaps discovered by the full race gate: runtime readiness now waits for a served `/healthz`, and scheduler transition assertions wait for the next anchored timer. No production concurrency defect or race report was observed.
+- Through the final Phase 3c checkpoint, made no deployment, feed-network enforcing run, real CrowdSec write, Git commit, image publication, registry push, container/network change, or production-service/configuration modification.
 
 ## Verified external interfaces
 
@@ -98,11 +120,11 @@ Detailed evidence and design baseline:
 - Spamhaus v6: `https://www.spamhaus.org/drop/drop_v6.json`, NDJSON, IPv6
 - FireHOL Level 1: `https://iplists.firehol.org/files/firehol_level1.netset`, comment-prefixed netset text, IPv4
 
-## Current architecture (partially implemented; Phase 3c active)
+## Current architecture (Phase 3c complete)
 
 One Go process with:
 
-1. standard-library CLI shell, build metadata, and closed-schema `log/slog` JSON logging (implemented; remaining commands pending);
+1. standard-library CLI shell, build metadata, production action composition, and closed-schema `log/slog` JSON logging (implemented and verified);
 2. strict YAML configuration plus environment overrides (implemented);
 3. direct read-only machine credential loading (implemented);
 4. bounded feed HTTP client and parser registry (implemented);
@@ -113,8 +135,9 @@ One Go process with:
 9. non-overlapping scheduler with startup jitter and bounded retry/backoff (implemented and focused-tested);
 10. small standard-library HTTP server for metrics/health/readiness (implemented and focused-tested);
 11. optional bounded ntfy client and durable delivery state (implemented and focused-tested);
-12. bounded synchronization history/runtime timestamps and ownership-safe history pruning (implemented and focused-tested);
-13. runtime production composition, bounded observer/log fan-out, startup recovery/authentication, due pruning, graceful cancellation, and ordered shutdown (implemented and focused/race-tested); operator CLI remains active Phase 3c work.
+12. bounded synchronization history/runtime timestamps and ownership-safe age/count history pruning with read-only planning and exact destructive confirmation (implemented and verified);
+13. runtime production composition, bounded observer/log fan-out, startup recovery/authentication, due pruning, graceful cancellation, and ordered shutdown (implemented and verified by current normal/race suites);
+14. production-backed `run`, `run --run-once`, `sync`, `status`, `validate-config`, `list-feeds`, `explain`, `prune`, and `db check` commands with stable exit codes, aggregate-only failures, immutable read paths, and signal cancellation.
 
 Direct non-standard runtime dependencies are limited to `go.yaml.in/yaml/v3` v3.0.4 (MIT/Apache-2.0) and `modernc.org/sqlite` v1.54.0 (BSD-3-Clause). Standard library code supplies CLI, HTTP, structured logging, metrics exposition, scheduling, and notifications.
 
@@ -204,6 +227,17 @@ Runtime checkpoint evidence at `2026-07-17T23:36:45-05:00`:
 - deterministic fake lifecycle tests prove startup recovery/restoration/pruning ordering, state-failure cleanup, stopping-before-worker-cancellation, scheduler join before notification close, graceful HTTP stop, and store/credential cleanup order;
 - this remains an interim checkpoint: CLI completion, current example/live config alignment for the exact internal HTTP host, full post-CLI suite/race/vet/module/privacy gates, and `max_history_entries` enforcement remain pending.
 
+Final Phase 3c evidence at `2026-07-18T01:17:32-05:00`:
+
+- `go mod tidy -diff` produced no diff after applying required metadata cleanup, and `go mod verify` reported `all modules verified`;
+- `go test -count=1 ./...` passed across all 20 packages; no aggregate individual-test count was collected or claimed;
+- `go vet ./...` passed with no findings;
+- `go build -trimpath ./cmd/crowdshield` succeeded, and the built binary returned `crowdshield dev (revision unknown, built unknown, go1.26.5 linux/amd64)` plus successful complete help dispatch;
+- `go test -race -count=1 ./...` passed across all 20 packages after the two test synchronization repairs; the focused runtime lifecycle test additionally passed 10 normal and 5 race repetitions, and the focused scheduler transition test passed 20 race repetitions;
+- `git diff --check` passed; the source credential-pattern scan and local database/key/log artifact scan reported zero matches;
+- the final residual process/listener command was denied by the execution guard and was not retried or reformulated. Residual-process state therefore remains explicitly unverified, although all bounded test servers completed and no background process was intentionally started;
+- no real feed synchronization, real LAPI write, deployment, container, network, registry, or production-service action occurred.
+
 Required quality gates remain:
 
 - `staticcheck ./...`
@@ -228,22 +262,22 @@ The host still lacks global Go and the analysis/scanning tools. The verified pro
 
 ### Phase 3: core implementation
 
-Use strict vertical TDD for (Phase 3b slices complete; Phase 3c active):
+Strict vertical TDD status (Phase 3 complete through 3c):
 
 - configuration and environment overrides (complete);
 - credential loading and redaction (complete);
 - feed retrieval/parsers/validation (complete);
 - network normalization/safety/allowlists/deduplication (complete);
-- SQLite migrations and repositories (complete for Phase 3b state plus Phase 3c notification state, sync history, runtime timestamps, and age-based terminal-history pruning);
+- SQLite migrations and repositories (complete for notification state, sync history, runtime timestamps, and age/count-bounded terminal-history pruning plus read-only planning);
 - ownership/reconciliation/missing grace/TTL/idempotency (complete);
 - mock and typed LAPI client contracts (complete for Phase 3b; no real write exercised);
 - orchestrated feed synchronization, definition changes, cadence/backoff, dry-run, and partial-failure behavior (complete);
-- scheduler (implemented and focused-tested);
+- scheduler (implemented and normal/race-tested);
 - operational event vocabulary, metrics, health, readiness, and bounded runtime fan-out/logging (implemented and focused-tested);
 - ntfy transport, state machine, configuration, and persistence (implemented and focused-tested);
-- bounded history/runtime timestamps and ownership-safe historical pruning (implemented and focused-tested; operator prune planning/confirmation remains CLI work);
-- runtime composition and lifecycle (implemented and focused/race-tested, including production constructors, partial-startup cleanup, startup authentication/recovery/pruning, stale notification checks, cancellation, and ordered shutdown);
-- CLI commands (pending after runtime composition).
+- bounded history/runtime timestamps and ownership-safe historical pruning (implemented and verified, including immutable planning, exact confirmation, ambiguity blocking, and configured count retention);
+- runtime composition and lifecycle (implemented and full-suite/race-tested, including production constructors, partial-startup cleanup, startup authentication/recovery/pruning, stale notification checks, signal cancellation, and ordered shutdown);
+- production CLI command composition, privacy, read-only guarantees, stable exit codes, dry-run behavior, enforcing one-shot behavior, and operator lifecycle (implemented and verified).
 
 ### Phase 4: testing and hardening
 
@@ -272,9 +306,10 @@ Report observed commands/results, sizes, coverage, scan findings, limitations, e
 - The mock LAPI covers authentication, create/read/expire, duplicate, recovery, and foreign-ownership contracts. Explicit runtime startup authentication, observer fan-out, and ordered lifecycle now have focused tests; no real write was exercised.
 - Real LAPI origin-filter queries should not be a normal dependency due to a reported v1.7.8 issue.
 - No real-LAPI write behavior has been exercised; that remains intentionally deferred to a separately approved plan.
-- The age-based repository prune is implemented, but `database.max_history_entries` count enforcement and the operator-facing dry-run/`--confirm` prune workflow remain pending.
-- Runtime production composition now requires an exact validated `crowdsec.allowed_http_hosts` entry for plain-HTTP credentials; checked-in and development configuration examples still need alignment before CLI/runtime verification.
+- Age/count retention, immutable prune planning, ambiguity blocking, and exact-confirmation application are implemented and verified; older notes that list these as pending are superseded.
+- Runtime production composition requires an exact validated `crowdsec.allowed_http_hosts` entry for plain-HTTP credentials. Deployment-specific configuration still requires operator review during packaging; no live configuration was changed here.
+- Residual process/listener state was not inspected at the final checkpoint because the read-only inspection command was denied and not retried. No background process was intentionally launched.
 
 ## Immediate next step
 
-Continue Phase 3c with strict vertical TDD on the operator CLI: wire `run` to the production runtime and signal cancellation, complete read-only `validate`, `status`, `sync --dry-run`, `explain`, `db check`, and bounded `prune` behavior with fixed exit codes/privacy guarantees, align configuration examples, then run the final Phase 3c suite/race/vet/module/privacy/leak gates.
+Perform one bounded Phase 4 hardening pass: coverage, vulnerability/license tooling, static analysis if available, and a single review/fix cycle. Preserve the no-deployment/no-real-LAPI-write boundary, and do not expand into packaging or production changes without explicit approval.

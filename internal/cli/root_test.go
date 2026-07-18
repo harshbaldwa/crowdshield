@@ -65,6 +65,24 @@ func TestValidateConfigLoadsOnlySelectedConfiguration(t *testing.T) {
 	}
 }
 
+func TestValidateConfigChecksCredentialShapeAndRedactsFailure(t *testing.T) {
+	const canary = "credential-validation-canary-do-not-emit"
+	checked := false
+	options := Options{
+		Version:    buildinfo.Current(),
+		LoadConfig: func(string) (config.Config, error) { return config.Defaults("test"), nil },
+		Actions: Actions{ValidateConfig: func(context.Context, config.Config) error {
+			checked = true
+			return errors.New(canary)
+		}},
+	}
+	var stdout, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"validate-config"}, &stdout, &stderr, options)
+	if code != ExitUsage || !checked || stdout.Len() != 0 || stderr.String() != "configuration invalid\n" || strings.Contains(stderr.String(), canary) {
+		t.Fatal("credential validation failure was not checked and reduced to a fixed diagnostic")
+	}
+}
+
 func TestUnknownCommandReturnsStableUsageWithoutEchoingArgument(t *testing.T) {
 	const canary = "unknown-command-canary-do-not-emit"
 	var stdout, stderr bytes.Buffer

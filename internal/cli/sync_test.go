@@ -53,6 +53,9 @@ func TestSyncUsesStableFailureAndOwnershipExits(t *testing.T) {
 		line   string
 	}{
 		{name: "degraded", result: syncResult(ops.OutcomeDegraded, ops.FailureFeedDownload), code: ExitNotReady, line: "outcome=degraded failure=feed_download"},
+		{name: "configuration", result: syncResult(ops.OutcomeFailed, ops.FailureConfig), code: ExitUsage, line: "outcome=failed failure=config"},
+		{name: "database", result: syncResult(ops.OutcomeFailed, ops.FailureDatabase), code: ExitOperational, line: "outcome=failed failure=database"},
+		{name: "lapi", result: syncResult(ops.OutcomeFailed, ops.FailureLAPI), code: ExitOperational, line: "outcome=failed failure=lapi"},
 		{name: "ownership", result: syncResult(ops.OutcomeFailed, ops.FailureOwnership), code: ExitOwnership, line: "outcome=failed failure=ownership"},
 		{name: "backend", err: errors.New("sync-canary-do-not-emit"), code: ExitOperational, line: "synchronization failed"},
 	}

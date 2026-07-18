@@ -129,7 +129,24 @@ VALUES(?, ?, ?, 'crowdshield', 'crowdshield/feed-one', 'Range', 'bounded-test-va
 		t.Fatal("notification retention fixture failed")
 	}
 
-	pruned, err := store.PruneHistory(ctx, now, 30*24*time.Hour)
+	planned, err := store.PlanPruneHistory(ctx, now, 30*24*time.Hour, 1000)
+	if err != nil || planned.SyncRuns != 1 || planned.Operations != 2 || planned.Decisions != 1 ||
+		planned.Alerts != 1 || planned.EnforcementObjects != 1 || planned.FeedEntries != 1 {
+		t.Fatal("read-only prune plan did not match eligible rows")
+	}
+	conflicts, err := store.CountAmbiguousOperations(ctx)
+	if err != nil || conflicts != 1 {
+		t.Fatal("ambiguous ownership operation count was inaccurate")
+	}
+	var oldRunBefore int
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sync_runs WHERE id=?`, oldRunID).Scan(&oldRunBefore); err != nil || oldRunBefore != 1 {
+		t.Fatal("read-only prune plan mutated history")
+	}
+	if _, found, err := store.RuntimeTimestamp(ctx, RuntimeLastPrune); err != nil || found {
+		t.Fatal("read-only prune plan changed runtime state")
+	}
+
+	pruned, err := store.PruneHistory(ctx, now, 30*24*time.Hour, 1000)
 	if err != nil {
 		t.Fatal("bounded history pruning failed")
 	}
@@ -159,7 +176,7 @@ VALUES(?, ?, ?, 'crowdshield', 'crowdshield/feed-one', 'Range', 'bounded-test-va
 	if err != nil || !found || !lastPrune.Equal(now) {
 		t.Fatal("last-prune runtime timestamp was not committed")
 	}
-	again, err := store.PruneHistory(ctx, now.Add(time.Hour), 30*24*time.Hour)
+	again, err := store.PruneHistory(ctx, now.Add(time.Hour), 30*24*time.Hour, 1000)
 	if err != nil || again != (PruneResult{}) {
 		t.Fatal("history pruning was not idempotent")
 	}
@@ -169,8 +186,39 @@ func TestPruneHistoryRejectsUnsafeRetentionBounds(t *testing.T) {
 	store := openTestStore(t)
 	now := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
 	for _, retention := range []time.Duration{0, -time.Hour, 11 * 365 * 24 * time.Hour} {
-		if _, err := store.PruneHistory(context.Background(), now, retention); err == nil || !IsCategory(err, ErrConstraint) {
+		if _, err := store.PruneHistory(context.Background(), now, retention, 1000); err == nil || !IsCategory(err, ErrConstraint) {
 			t.Fatal("unsafe history retention accepted")
 		}
+	}
+}
+
+func TestPruneHistoryEnforcesTerminalSyncRunCountLimit(t *testing.T) {
+	store := openTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
+	for index := 0; index < 3; index++ {
+		started := now.Add(time.Duration(index-3) * time.Hour)
+		runID, err := store.BeginSyncRun(ctx, SyncModeEnforce, "", started)
+		if err != nil {
+			t.Fatal("begin count-limit sync fixture")
+		}
+		if err := store.CompleteSyncRun(ctx, runID, ops.Result{
+			Outcome: ops.OutcomeSuccess, StartedAt: started, CompletedAt: started.Add(time.Minute),
+		}); err != nil {
+			t.Fatal("complete count-limit sync fixture")
+		}
+	}
+	if _, err := store.BeginSyncRun(ctx, SyncModeEnforce, "", now.Add(-4*time.Hour)); err != nil {
+		t.Fatal("begin open sync fixture")
+	}
+
+	result, err := store.PruneHistory(ctx, now, 30*24*time.Hour, 2)
+	if err != nil || result.SyncRuns != 1 {
+		t.Fatal("history count limit did not prune exactly one terminal run")
+	}
+	runs, err := store.ListSyncRuns(ctx, 10)
+	if err != nil || len(runs) != 3 || runs[0].Status != RunStatusSuccess ||
+		runs[1].Status != RunStatusSuccess || runs[2].Status != RunStatusRunning {
+		t.Fatal("history count limit did not preserve newest terminal and running runs")
 	}
 }

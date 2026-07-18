@@ -43,6 +43,9 @@ func outputForSync(result ops.Result) syncOutput {
 }
 
 func syncExit(result ops.Result) int {
+	if result.Failure == ops.FailureConfig {
+		return ExitUsage
+	}
 	if result.Failure == ops.FailureOwnership {
 		return ExitOwnership
 	}

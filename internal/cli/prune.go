@@ -64,7 +64,9 @@ func pruneCommand(ctx context.Context, args []string, stdout, stderr io.Writer, 
 		return ExitOperational
 	}
 	mode := "plan"
-	if confirmed {
+	if result.OwnershipConflicts > 0 {
+		mode = "blocked"
+	} else if confirmed {
 		mode = "applied"
 	}
 	if *asJSON {
